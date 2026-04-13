@@ -1,6 +1,7 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { CircularProgress, Box } from '@mui/material';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { CircularProgress, Box, Fade } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
+import { useEffect, useState } from 'react';
 
 import Navbar from './components/layout/Navbar';
 import Landing from './pages/Landing';
@@ -25,6 +26,24 @@ function ProtectedRoute({ children, roles }) {
   return children;
 }
 
+/* Lightweight fade wrapper — mounts with a quick fade-in on every route change */
+function PageTransition({ children }) {
+  const location = useLocation();
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    setShow(false);
+    const t = setTimeout(() => setShow(true), 30);
+    return () => clearTimeout(t);
+  }, [location.pathname]);
+
+  return (
+    <Fade in={show} timeout={250}>
+      <Box>{children}</Box>
+    </Fade>
+  );
+}
+
 export default function App() {
   const { user } = useAuth();
 
@@ -39,29 +58,32 @@ export default function App() {
   return (
     <>
       <Navbar />
-      <Routes>
-        <Route path="/" element={user ? <Navigate to={getDashboardRoute()} /> : <Landing />} />
-        <Route path="/login" element={user ? <Navigate to={getDashboardRoute()} /> : <Login />} />
-        <Route path="/signup" element={user ? <Navigate to={getDashboardRoute()} /> : <SignUp />} />
+      <PageTransition>
+        <Routes>
+          <Route path="/" element={user ? <Navigate to={getDashboardRoute()} /> : <Landing />} />
+          <Route path="/login" element={user ? <Navigate to={getDashboardRoute()} /> : <Login />} />
+          <Route path="/signup" element={user ? <Navigate to={getDashboardRoute()} /> : <SignUp />} />
 
-        {/* Student */}
-        <Route path="/dashboard" element={<ProtectedRoute roles={['student']}><StudentDashboard /></ProtectedRoute>} />
-        <Route path="/bookings" element={<ProtectedRoute roles={['student']}><Bookings /></ProtectedRoute>} />
+          {/* Student */}
+          <Route path="/dashboard" element={<ProtectedRoute roles={['student']}><StudentDashboard /></ProtectedRoute>} />
+          <Route path="/bookings" element={<ProtectedRoute roles={['student']}><Bookings /></ProtectedRoute>} />
 
-        {/* Tutor */}
-        <Route path="/tutor-dashboard" element={<ProtectedRoute roles={['tutor']}><TutorDashboard /></ProtectedRoute>} />
+          {/* Tutor */}
+          <Route path="/tutor-dashboard" element={<ProtectedRoute roles={['tutor']}><TutorDashboard /></ProtectedRoute>} />
 
-        {/* Admin */}
-        <Route path="/admin-dashboard" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+          {/* Admin */}
+          <Route path="/admin-dashboard" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
 
-        {/* Public / Shared */}
-        <Route path="/tutors" element={<TutorSearch />} />
-        <Route path="/tutors/:id" element={<TutorProfile />} />
-        <Route path="/forum" element={<Forum />} />
-        <Route path="/forum/post/:id" element={<ForumThread />} />
-        <Route path="/forum/new" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />
-        <Route path="/ai-assistant" element={<ProtectedRoute><AIChat /></ProtectedRoute>} />
-      </Routes>
+          {/* Public / Shared */}
+          <Route path="/tutors" element={<TutorSearch />} />
+          <Route path="/tutors/:id" element={<TutorProfile />} />
+          <Route path="/forum" element={<Forum />} />
+          <Route path="/forum/post/:id" element={<ForumThread />} />
+          <Route path="/forum/new" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />
+          {/* AI assistant — accessible by everyone, but shows login overlay if not authenticated */}
+          <Route path="/ai-assistant" element={<AIChat />} />
+        </Routes>
+      </PageTransition>
     </>
   );
 }

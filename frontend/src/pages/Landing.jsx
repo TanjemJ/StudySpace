@@ -1,6 +1,13 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Container, Typography, Button, Grid, Card, CardContent, Stack } from '@mui/material';
-import { Search, Forum, SmartToy, VerifiedUser, Groups, School, Payments } from '@mui/icons-material';
+import {
+  Box, Container, Typography, Button, Grid, Card, CardContent, Stack,
+  Accordion, AccordionSummary, AccordionDetails,
+} from '@mui/material';
+import {
+  Search, Forum, SmartToy, VerifiedUser, Groups, School, Payments,
+  ExpandMore,
+} from '@mui/icons-material';
 
 const features = [
   { icon: <VerifiedUser sx={{ fontSize: 40 }} />, title: 'Verified Tutors', desc: 'Every tutor is verified with ID, qualifications, and DBS checks for your safety.' },
@@ -15,8 +22,45 @@ const steps = [
   { num: '3', icon: <SmartToy />, title: 'Get Guided AI Help', desc: 'Our AI helps you think through problems step by step.' },
 ];
 
+const faqs = [
+  {
+    q: 'How does the tutor booking system work?',
+    a: 'Browse our verified tutors by subject, price, and availability. Once you find a tutor you like, select an available time slot, choose your session type (video call, in-person, or chat), and confirm your booking. Payment is handled securely through the platform, and both you and the tutor receive confirmation with session details.',
+  },
+  {
+    q: 'How are tutors verified on StudySpace?',
+    a: 'Every tutor goes through a multi-step verification process. They must provide a valid photo ID, proof of qualifications (degree certificates, teaching credentials), and a DBS check. Our admin team reviews every application before a tutor profile goes live. You can see each tutor\'s verification badge on their profile.',
+  },
+  {
+    q: 'What makes the AI Academic Assistant different from ChatGPT?',
+    a: 'Unlike standard AI chatbots, our AI Assistant is designed to guide you through problems step by step using the Socratic method. It will not write your essays or give you direct answers. Instead, it asks follow-up questions, provides hints, and helps you think through problems yourself — building genuine understanding rather than shortcuts.',
+  },
+  {
+    q: 'Are the community forums moderated?',
+    a: 'Yes. StudySpace uses both automated keyword detection and manual admin moderation to keep forums safe and respectful. Inappropriate content is automatically flagged for review, and users can report posts that violate guidelines. Repeat offenders receive warnings and may be temporarily suspended.',
+  },
+  {
+    q: 'What are university-specific forums?',
+    a: 'When you verify your university email, you get access to private forum spaces exclusively for students at your university. These are great for discussing specific modules, campus life, societies, and connecting with coursemates. Only verified students from your university can see and post in these spaces.',
+  },
+  {
+    q: 'How much does StudySpace cost?',
+    a: 'Community forums, the AI Academic Assistant, and browsing tutors are completely free. You only pay when you book a tutoring session, and prices are set transparently by each tutor. There are no hidden fees or subscription costs. Tutors keep the majority of their earnings with low platform commissions.',
+  },
+  {
+    q: 'Can I post anonymously in the forums?',
+    a: 'Yes. Every post and reply has an option to post anonymously. Your name is completely hidden from other users when you choose this option. This is designed for students who may feel intimidated asking questions openly. You can still receive replies and upvotes on anonymous posts.',
+  },
+  {
+    q: 'What if I need to cancel a tutoring session?',
+    a: 'You can cancel a booked session from your dashboard. Cancellations made more than 24 hours before the session receive a full refund. Late cancellations may be subject to the tutor\'s individual cancellation policy, which is displayed on their profile before you book.',
+  },
+];
+
 export default function Landing() {
   const navigate = useNavigate();
+  const [expandedFaq, setExpandedFaq] = useState(false);
+
   return (
     <Box>
       {/* Hero */}
@@ -91,12 +135,50 @@ export default function Landing() {
         </Container>
       </Box>
 
-      {/* CTA */}
-      <Container maxWidth="sm" sx={{ py: 8, textAlign: 'center' }}>
-        <Typography variant="h3" sx={{ mb: 2 }}>Ready to learn smarter?</Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>Join thousands of university students already using StudySpace.</Typography>
-        <Button variant="contained" size="large" onClick={() => navigate('/signup')}>Create Free Account</Button>
+      {/* FAQ Section */}
+      <Container maxWidth="md" sx={{ py: 8 }}>
+        <Typography variant="h2" textAlign="center" sx={{ mb: 1 }}>Frequently Asked Questions</Typography>
+        <Typography color="text.secondary" textAlign="center" sx={{ mb: 4 }}>
+          Everything you need to know about StudySpace.
+        </Typography>
+        {faqs.map((faq, i) => (
+          <Accordion
+            key={i}
+            expanded={expandedFaq === i}
+            onChange={(_, isExpanded) => setExpandedFaq(isExpanded ? i : false)}
+            disableGutters
+            elevation={0}
+            sx={{
+              border: 'none',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              '&:before': { display: 'none' },
+              '&.Mui-expanded': { margin: 0 },
+            }}
+          >
+            <AccordionSummary
+              expandIcon={<ExpandMore />}
+              sx={{ px: 0, py: 1, '& .MuiAccordionSummary-content': { my: 1.5 } }}
+            >
+              <Typography variant="h5" sx={{ fontWeight: expandedFaq === i ? 700 : 500, color: expandedFaq === i ? 'primary.main' : 'text.primary' }}>
+                {faq.q}
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 0, pb: 2 }}>
+              <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>{faq.a}</Typography>
+            </AccordionDetails>
+          </Accordion>
+        ))}
       </Container>
+
+      {/* CTA */}
+      <Box sx={{ bgcolor: '#F0FDF4', py: 8 }}>
+        <Container maxWidth="sm" sx={{ textAlign: 'center' }}>
+          <Typography variant="h3" sx={{ mb: 2 }}>Ready to learn smarter?</Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>Join thousands of university students already using StudySpace.</Typography>
+          <Button variant="contained" size="large" onClick={() => navigate('/signup')}>Create Free Account</Button>
+        </Container>
+      </Box>
 
       {/* Footer */}
       <Box sx={{ bgcolor: '#004D2C', color: 'white', py: 4 }}>

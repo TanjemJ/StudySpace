@@ -4,13 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 import {
   Container, Typography, Grid, Card, CardContent, Button, Box, Chip, Stack,
-  Avatar, TextField, InputAdornment, Tabs, Tab, Divider, Badge, ToggleButtonGroup,
+  Avatar, TextField, InputAdornment, Tabs, Tab, Divider, ToggleButtonGroup,
   ToggleButton, Paper, Alert, Tooltip,
 } from '@mui/material';
 import {
   Add, ThumbUp, ChatBubble, PushPin, Search, School, Public, Lock,
-  TrendingUp, Schedule, QuestionAnswer, Forum as ForumIcon, Whatshot,
-  FilterList, SortByAlpha,
+  Schedule, QuestionAnswer, Forum as ForumIcon, Whatshot,
 } from '@mui/icons-material';
 
 export default function Forum() {
@@ -29,8 +28,9 @@ export default function Forum() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('latest');
 
-  // User's university
+  // User's verified university
   const userUniversity = user?.student_profile?.university || '';
+  const isUniVerified = user?.student_profile?.university_verified || false;
 
   useEffect(() => {
     api.get('/forum/universities/').then(r => setUniversities(r.data.universities || [])).catch(() => {});
@@ -47,13 +47,12 @@ export default function Forum() {
 
   const fetchPosts = (overrides = {}) => {
     setLoading(true);
-    const params = {
-      sort: overrides.sort || sortBy,
-    };
+    const params = { sort: overrides.sort || sortBy };
     if (overrides.category || selectedCat) params.category = overrides.category || selectedCat;
-    if (overrides.university !== undefined ? overrides.university : selectedUni) {
-      params.university = overrides.university !== undefined ? overrides.university : selectedUni;
-    }
+
+    const uni = overrides.university !== undefined ? overrides.university : selectedUni;
+    if (uni) params.university = uni;
+
     if (overrides.search || searchQuery) params.search = overrides.search || searchQuery;
 
     api.get('/forum/posts/', { params })
@@ -96,7 +95,16 @@ export default function Forum() {
     return new Date(dateStr).toLocaleDateString();
   };
 
-  // Separate global and university categories
+  const uniShortName = (uni) => {
+    if (uni.includes('South Bank')) return 'LSBU';
+    if (uni.includes('Kings')) return 'KCL';
+    if (uni.includes('University College London')) return 'UCL';
+    if (uni.includes('Imperial')) return 'Imperial';
+    if (uni.includes('Queen')) return 'QMUL';
+    return uni.substring(0, 15);
+  };
+
+  // Separate categories
   const globalCategories = categories.filter(c => !c.university);
   const uniCategories = categories.filter(c => c.university);
 
@@ -123,7 +131,7 @@ export default function Forum() {
         <Grid container spacing={3}>
           {/* Main content */}
           <Grid item xs={12} md={8}>
-            {/* University Tabs */}
+            {/* University Tabs — only show user's own university if verified */}
             <Paper sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
               <Tabs
                 value={selectedUni}
@@ -134,37 +142,28 @@ export default function Forum() {
               >
                 <Tab icon={<Public sx={{ fontSize: 18 }} />} iconPosition="start" label="All Posts" value="all" />
                 <Tab icon={<ForumIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Global" value="global" />
-                {userUniversity && (
+                {/* Only show user's own university tab if they have one and are verified */}
+                {userUniversity && isUniVerified && (
                   <Tab
                     icon={<School sx={{ fontSize: 18 }} />} iconPosition="start"
-                    label={`My University`}
+                    label={`My Uni — ${uniShortName(userUniversity)}`}
                     value={userUniversity}
                   />
                 )}
-                {universities.filter(u => u !== userUniversity).map(u => {
-                  const short = u.includes('South Bank') ? 'LSBU' : u.includes('Kings') ? 'KCL' : u.includes('College London') && u.includes('University') ? 'UCL' : u.includes('Imperial') ? 'Imperial' : u.includes('Queen') ? 'QMUL' : u.substring(0, 15);
-                  return (
-                    <Tab
-                      key={u} icon={<School sx={{ fontSize: 18 }} />} iconPosition="start"
-                      label={short} value={u}
-                      sx={{ opacity: user ? 1 : 0.5 }}
-                    />
-                  );
-                })}
               </Tabs>
             </Paper>
 
-            {/* University-only notice */}
+            {/* Notice for university forums */}
             {selectedUni && selectedUni !== 'all' && selectedUni !== 'global' && (
-              <Alert
-                severity={userUniversity === selectedUni ? 'success' : 'info'}
-                icon={userUniversity === selectedUni ? <School /> : <Lock />}
-                sx={{ mb: 2 }}
-              >
-                {userUniversity === selectedUni
-                  ? `You are viewing your university's private forum. Only verified ${selectedUni} students can post here.`
-                  : `This is a private forum for ${selectedUni} students. Verify your university email to access.`
-                }
+              <Alert severity="success" icon={<School />} sx={{ mb: 2 }}>
+                You are viewing your university's private forum. Only verified {uniShortName(selectedUni)} students can see and post here.
+              </Alert>
+            )}
+
+            {/* Prompt to verify university if they have one but it's not verified */}
+            {user && userUniversity && !isUniVerified && selectedUni === 'all' && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Verify your university email to access {uniShortName(userUniversity)}'s private forum.
               </Alert>
             )}
 
@@ -178,44 +177,27 @@ export default function Forum() {
                 sx={{ flex: 1, minWidth: 200 }}
                 InputProps={{ startAdornment: <InputAdornment position="start"><Search sx={{ fontSize: 20 }} /></InputAdornment> }}
               />
-              <ToggleButtonGroup
-                value={sortBy} exclusive
-                onChange={(_, v) => v && handleSortChange(v)}
-                size="small"
-              >
-                <ToggleButton value="latest">
-                  <Tooltip title="Latest"><Schedule sx={{ fontSize: 18 }} /></Tooltip>
-                </ToggleButton>
-                <ToggleButton value="popular">
-                  <Tooltip title="Most Popular"><Whatshot sx={{ fontSize: 18 }} /></Tooltip>
-                </ToggleButton>
-                <ToggleButton value="most_discussed">
-                  <Tooltip title="Most Discussed"><ChatBubble sx={{ fontSize: 18 }} /></Tooltip>
-                </ToggleButton>
-                <ToggleButton value="unanswered">
-                  <Tooltip title="Unanswered"><QuestionAnswer sx={{ fontSize: 18 }} /></Tooltip>
-                </ToggleButton>
+              <ToggleButtonGroup value={sortBy} exclusive onChange={(_, v) => v && handleSortChange(v)} size="small">
+                <ToggleButton value="latest"><Tooltip title="Latest"><Schedule sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
+                <ToggleButton value="popular"><Tooltip title="Most Popular"><Whatshot sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
+                <ToggleButton value="most_discussed"><Tooltip title="Most Discussed"><ChatBubble sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
+                <ToggleButton value="unanswered"><Tooltip title="Unanswered"><QuestionAnswer sx={{ fontSize: 18 }} /></Tooltip></ToggleButton>
               </ToggleButtonGroup>
             </Box>
 
-            {/* Category chips */}
+            {/* Category chips — show global or uni categories based on tab */}
             <Stack direction="row" spacing={0.5} sx={{ mb: 2.5, flexWrap: 'wrap', gap: 0.5 }}>
               <Chip
-                label="All Topics"
-                onClick={() => handleCategorySelect(null)}
+                label="All Topics" onClick={() => handleCategorySelect(null)}
                 color={!selectedCat ? 'primary' : 'default'}
-                variant={!selectedCat ? 'filled' : 'outlined'}
-                size="small"
+                variant={!selectedCat ? 'filled' : 'outlined'} size="small"
               />
               {(selectedUni && selectedUni !== 'all' && selectedUni !== 'global' ? uniCategories : globalCategories).map(c => (
                 <Chip
-                  key={c.id}
-                  label={`${c.name} (${c.post_count})`}
+                  key={c.id} label={`${c.name} (${c.post_count})`}
                   onClick={() => handleCategorySelect(c.id)}
                   color={selectedCat === c.id ? 'primary' : 'default'}
-                  variant={selectedCat === c.id ? 'filled' : 'outlined'}
-                  size="small"
-                  icon={c.is_university_only ? <Lock sx={{ fontSize: 14 }} /> : undefined}
+                  variant={selectedCat === c.id ? 'filled' : 'outlined'} size="small"
                 />
               ))}
             </Stack>
@@ -224,10 +206,9 @@ export default function Forum() {
             <Stack spacing={1.5}>
               {posts.map(p => (
                 <Card
-                  key={p.id}
-                  sx={{ cursor: 'pointer', '&:hover': { borderColor: 'primary.main', borderWidth: 1 } }}
+                  key={p.id} variant="outlined"
+                  sx={{ cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }}
                   onClick={() => navigate('/forum/post/' + p.id)}
-                  variant="outlined"
                 >
                   <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
                     <Box sx={{ display: 'flex', gap: 1.5 }}>
@@ -239,22 +220,18 @@ export default function Forum() {
 
                       {/* Content */}
                       <Box sx={{ flex: 1, minWidth: 0 }}>
+                        {/* Meta badges */}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
                           {p.is_pinned && (
                             <Chip icon={<PushPin sx={{ fontSize: 12 }} />} label="Pinned" size="small"
                               sx={{ height: 20, fontSize: 11, bgcolor: 'primary.light', color: 'white' }} />
                           )}
-                          <Chip label={p.category_name} size="small" variant="outlined"
-                            sx={{ height: 20, fontSize: 11 }} />
+                          {p.category_name && (
+                            <Chip label={p.category_name} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+                          )}
                           {p.university && (
-                            <Chip icon={<School sx={{ fontSize: 12 }} />} label={
-                              p.university.includes('South Bank') ? 'LSBU' :
-                              p.university.includes('Kings') ? 'KCL' :
-                              p.university.includes('College London') ? 'UCL' :
-                              p.university.includes('Imperial') ? 'Imperial' :
-                              p.university.includes('Queen') ? 'QMUL' : p.university.substring(0, 12)
-                            } size="small" color="success" variant="outlined"
-                              sx={{ height: 20, fontSize: 11 }} />
+                            <Chip icon={<School sx={{ fontSize: 12 }} />} label={uniShortName(p.university)}
+                              size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
                           )}
                         </Box>
 
@@ -267,12 +244,12 @@ export default function Forum() {
 
                         {/* Tags */}
                         {p.tags && p.tags.length > 0 && (
-                          <Stack direction="row" spacing={0.5} sx={{ mb: 1, flexWrap: 'wrap', gap: 0.3 }}>
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.3, mb: 1 }}>
                             {p.tags.slice(0, 4).map(tag => (
                               <Chip key={tag} label={`#${tag}`} size="small"
                                 sx={{ height: 18, fontSize: 10, bgcolor: '#F0FDF4', color: 'primary.main' }} />
                             ))}
-                          </Stack>
+                          </Box>
                         )}
 
                         {/* Meta row */}
@@ -286,7 +263,7 @@ export default function Forum() {
                           <Typography variant="caption" color="text.secondary">{timeAgo(p.created_at)}</Typography>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
                             <ChatBubble sx={{ fontSize: 14, color: 'text.secondary' }} />
-                            <Typography variant="caption" color="text.secondary">{p.reply_count} replies</Typography>
+                            <Typography variant="caption" color="text.secondary">{p.reply_count}</Typography>
                           </Box>
                         </Stack>
                       </Box>
@@ -304,11 +281,7 @@ export default function Forum() {
                 <Typography color="text.secondary" sx={{ mb: 2 }}>
                   {searchQuery ? 'Try different search terms.' : 'Be the first to start a discussion!'}
                 </Typography>
-                {user && (
-                  <Button variant="contained" startIcon={<Add />} onClick={() => navigate('/forum/new')}>
-                    Create Post
-                  </Button>
-                )}
+                {user && <Button variant="contained" startIcon={<Add />} onClick={() => navigate('/forum/new')}>Create Post</Button>}
               </Paper>
             )}
           </Grid>
@@ -336,58 +309,66 @@ export default function Forum() {
               </CardContent>
             </Card>
 
-            {/* University Groups */}
-            <Card sx={{ mb: 2 }}>
-              <CardContent>
-                <Typography variant="h5" sx={{ mb: 1.5 }}>
-                  <School sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'text-bottom' }} />
-                  University Groups
-                </Typography>
-                <Stack spacing={0.5}>
-                  {universities.map(uni => {
-                    const short = uni.includes('South Bank') ? 'LSBU' : uni.includes('Kings') ? 'KCL' : uni.includes('College London') && uni.includes('University') ? 'UCL' : uni.includes('Imperial') ? 'Imperial' : uni.includes('Queen') ? 'QMUL' : uni;
-                    const isUserUni = uni === userUniversity;
-                    return (
-                      <Chip
-                        key={uni}
-                        label={short}
-                        onClick={() => handleUniversityChange(uni)}
-                        color={selectedUni === uni ? 'primary' : 'default'}
-                        variant={selectedUni === uni ? 'filled' : 'outlined'}
-                        size="small"
-                        icon={isUserUni ? <School sx={{ fontSize: 14 }} /> : <Lock sx={{ fontSize: 14 }} />}
-                        sx={{ justifyContent: 'flex-start' }}
-                      />
-                    );
-                  })}
-                </Stack>
-                {!user && (
+            {/* My University — only if verified */}
+            {user && userUniversity && isUniVerified && (
+              <Card sx={{ mb: 2, border: '1px solid', borderColor: 'primary.main' }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <School sx={{ fontSize: 20, color: 'primary.main' }} />
+                    <Typography variant="h5">My University</Typography>
+                  </Box>
+                  <Chip
+                    label={uniShortName(userUniversity)}
+                    onClick={() => handleUniversityChange(userUniversity)}
+                    color={selectedUni === userUniversity ? 'primary' : 'default'}
+                    variant={selectedUni === userUniversity ? 'filled' : 'outlined'}
+                    icon={<School sx={{ fontSize: 14 }} />}
+                  />
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                    Log in and verify your university email to access private forums.
+                    Access your university's private forums and connect with coursemates.
                   </Typography>
-                )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Not logged in or no university */}
+            {(!user || !userUniversity) && (
+              <Card sx={{ mb: 2 }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Lock sx={{ fontSize: 20, color: 'text.secondary' }} />
+                    <Typography variant="h5">University Forums</Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    {!user
+                      ? 'Log in and verify your university email to access private university forums.'
+                      : 'Verify your university email in Settings to access private forums.'}
+                  </Typography>
+                  {!user && (
+                    <Button variant="outlined" size="small" onClick={() => navigate('/login')}>Log In</Button>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Popular Tags */}
             <Card sx={{ mb: 2 }}>
               <CardContent>
                 <Typography variant="h5" sx={{ mb: 1.5 }}>Popular Tags</Typography>
-                <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                   {['study-tips', 'cs', 'career', 'deadlines', 'mental-health', 'maths', 'coding', 'internship',
                     'dissertation', 'referencing', 'react', 'productivity'].map(tag => (
                     <Chip
-                      key={tag} label={`#${tag}`} size="small"
+                      key={tag} label={`#${tag}`} size="small" variant="outlined"
                       sx={{ cursor: 'pointer', '&:hover': { bgcolor: '#F0FDF4' } }}
-                      variant="outlined"
                       onClick={() => { setSearchQuery(tag); fetchPosts({ search: tag }); }}
                     />
                   ))}
-                </Stack>
+                </Box>
               </CardContent>
             </Card>
 
-            {/* Forum Guidelines */}
+            {/* Guidelines */}
             <Card>
               <CardContent>
                 <Typography variant="h5" sx={{ mb: 1 }}>Forum Guidelines</Typography>

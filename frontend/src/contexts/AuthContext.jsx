@@ -10,20 +10,24 @@ export function AuthProvider({ children }) {
   });
   const [loading, setLoading] = useState(true);
 
+  const fetchFullProfile = async () => {
+    try {
+      const res = await api.get('/auth/me/');
+      setUser(res.data);
+      localStorage.setItem('user', JSON.stringify(res.data));
+      return res.data;
+    } catch {
+      setUser(null);
+      localStorage.removeItem('user');
+      localStorage.removeItem('tokens');
+      return null;
+    }
+  };
+
   useEffect(() => {
     const tokens = JSON.parse(localStorage.getItem('tokens') || '{}');
     if (tokens.access) {
-      api.get('/auth/me/')
-        .then((res) => {
-          setUser(res.data);
-          localStorage.setItem('user', JSON.stringify(res.data));
-        })
-        .catch(() => {
-          setUser(null);
-          localStorage.removeItem('user');
-          localStorage.removeItem('tokens');
-        })
-        .finally(() => setLoading(false));
+      fetchFullProfile().finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
@@ -34,6 +38,10 @@ export function AuthProvider({ children }) {
     localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
     localStorage.setItem('user', JSON.stringify(res.data.user));
     setUser(res.data.user);
+
+    // Immediately fetch full profile (includes student_profile with university_verified)
+    await fetchFullProfile();
+
     return res.data;
   };
 
@@ -49,7 +57,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateUser, fetchFullProfile }}>
       {children}
     </AuthContext.Provider>
   );
