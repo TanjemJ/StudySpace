@@ -4,28 +4,43 @@ from accounts.models import User
 
 
 class ForumCategory(models.Model):
+    """Forum categories — can be global or university-specific."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True, max_length=500)
-    university = models.CharField(max_length=200, blank=True)
+    university = models.CharField(
+        max_length=200, blank=True,
+        help_text="If set, only students from this university can see and post here."
+    )
     icon = models.CharField(max_length=50, blank=True, default='forum')
     post_count = models.IntegerField(default=0)
+    is_university_only = models.BooleanField(
+        default=False,
+        help_text="If True, only verified university students can access this category."
+    )
+    order = models.IntegerField(default=0, help_text="Display order, lower = first")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name_plural = 'Forum Categories'
-        ordering = ['name']
+        ordering = ['order', 'name']
 
     def __str__(self):
-        return self.name
+        suffix = f" [{self.university}]" if self.university else ""
+        return f"{self.name}{suffix}"
 
 
 class ForumPost(models.Model):
+    """A forum post/thread."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='forum_posts')
     category = models.ForeignKey(ForumCategory, on_delete=models.CASCADE, related_name='posts')
     title = models.CharField(max_length=200)
     content = models.TextField(max_length=10000)
+    university = models.CharField(
+        max_length=200, blank=True,
+        help_text="The university this post belongs to (auto-set from author's profile)."
+    )
     is_anonymous = models.BooleanField(default=False)
     is_pinned = models.BooleanField(default=False)
     is_flagged = models.BooleanField(default=False)
@@ -43,8 +58,13 @@ class ForumPost(models.Model):
     def __str__(self):
         return self.title
 
+    @property
+    def author_display(self):
+        return 'Anonymous' if self.is_anonymous else self.author.display_name
+
 
 class ForumReply(models.Model):
+    """A reply to a forum post."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     post = models.ForeignKey(ForumPost, on_delete=models.CASCADE, related_name='replies')
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='forum_replies')
@@ -58,8 +78,12 @@ class ForumReply(models.Model):
     class Meta:
         ordering = ['created_at']
 
+    def __str__(self):
+        return f"Reply to: {self.post.title}"
+
 
 class PostVote(models.Model):
+    """Tracks individual user votes to prevent double-voting."""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     post = models.ForeignKey(ForumPost, on_delete=models.CASCADE, null=True, blank=True)
     reply = models.ForeignKey(ForumReply, on_delete=models.CASCADE, null=True, blank=True)
@@ -71,6 +95,7 @@ class PostVote(models.Model):
 
 
 class ModerationLog(models.Model):
+    """Records admin moderation actions."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     admin = models.ForeignKey(User, on_delete=models.CASCADE, related_name='moderation_actions')
     target_type = models.CharField(max_length=10)
