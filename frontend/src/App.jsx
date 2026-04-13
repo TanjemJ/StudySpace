@@ -17,6 +17,7 @@ import ForumThread from './pages/ForumThread';
 import CreatePost from './pages/CreatePost';
 import AIChat from './pages/AIChat';
 import Bookings from './pages/Bookings';
+import Settings from './pages/Settings';
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
@@ -26,7 +27,6 @@ function ProtectedRoute({ children, roles }) {
   return children;
 }
 
-/* Lightweight fade wrapper — mounts with a quick fade-in on every route change */
 function PageTransition({ children }) {
   const location = useLocation();
   const [show, setShow] = useState(false);
@@ -80,8 +80,8 @@ export default function App() {
           <Route path="/forum" element={<Forum />} />
           <Route path="/forum/post/:id" element={<ForumThread />} />
           <Route path="/forum/new" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />
-          {/* AI assistant — accessible by everyone, but shows login overlay if not authenticated */}
           <Route path="/ai-assistant" element={<AIChat />} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         </Routes>
       </PageTransition>
     </>

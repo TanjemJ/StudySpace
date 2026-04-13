@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 from . import views
+from . import settings_views
 
 urlpatterns = [
     # Multi-step registration
@@ -24,4 +25,12 @@ urlpatterns = [
     # Notifications
     path('notifications/', views.NotificationListView.as_view(), name='notifications'),
     path('notifications/<uuid:pk>/read/', views.NotificationMarkReadView.as_view(), name='notification-read'),
+    # Settings
+    path('settings/profile/', settings_views.UpdateProfileView.as_view(), name='settings-profile'),
+    path('settings/display-name/', settings_views.ChangeDisplayNameView.as_view(), name='settings-display-name'),
+    path('settings/password/', settings_views.ChangePasswordView.as_view(), name='settings-password'),
+    path('settings/avatar/', settings_views.UploadAvatarView.as_view(), name='settings-avatar'),
+    path('settings/notifications/', settings_views.UpdateNotificationPrefsView.as_view(), name='settings-notifications'),
+    path('settings/accessibility/', settings_views.UpdateAccessibilityView.as_view(), name='settings-accessibility'),
+    path('settings/delete-account/', settings_views.DeleteAccountView.as_view(), name='settings-delete-account'),
 ]

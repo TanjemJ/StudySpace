@@ -4,10 +4,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   AppBar, Toolbar, Typography, Button, Box, IconButton, Menu, MenuItem,
   Avatar, Chip, useMediaQuery, Drawer, List, ListItem, ListItemText, ListItemIcon,
+  Divider,
 } from '@mui/material';
 import {
   Menu as MenuIcon, School, Forum, SmartToy, Search, Notifications,
-  Person, Logout, Dashboard, BookOnline,
+  Person, Logout, Dashboard, BookOnline, Settings,
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 
@@ -81,7 +82,7 @@ export default function Navbar() {
               <Notifications />
             </IconButton>
             <Chip
-              avatar={<Avatar sx={{ bgcolor: 'primary.main' }}>{user.display_name?.[0]?.toUpperCase()}</Avatar>}
+              avatar={<Avatar src={user.avatar || undefined} sx={{ bgcolor: 'primary.main' }}>{user.display_name?.[0]?.toUpperCase()}</Avatar>}
               label={user.display_name}
               onClick={(e) => setAnchorEl(e.currentTarget)}
               sx={{ cursor: 'pointer' }}
@@ -96,6 +97,10 @@ export default function Navbar() {
               {user.role === 'tutor' && <MenuItem onClick={() => { handleNav('/tutor-dashboard'); setAnchorEl(null); }}>Dashboard</MenuItem>}
               {user.role === 'admin' && <MenuItem onClick={() => { handleNav('/admin-dashboard'); setAnchorEl(null); }}>Admin Panel</MenuItem>}
               <MenuItem onClick={() => { handleNav('/bookings'); setAnchorEl(null); }}>My Bookings</MenuItem>
+              <MenuItem onClick={() => { handleNav('/settings'); setAnchorEl(null); }}>
+                <Settings sx={{ mr: 1, fontSize: 18 }} /> Settings
+              </MenuItem>
+              <Divider />
               <MenuItem onClick={() => { logout(); navigate('/'); setAnchorEl(null); }}>
                 <Logout sx={{ mr: 1, fontSize: 18 }} /> Log out
               </MenuItem>
@@ -124,6 +129,15 @@ export default function Navbar() {
                   <ListItemText primary={tab.label} />
                 </ListItem>
               ))}
+              {user && (
+                <>
+                  <Divider sx={{ my: 1 }} />
+                  <ListItem button onClick={() => handleNav('/settings')}>
+                    <ListItemIcon><Settings /></ListItemIcon>
+                    <ListItemText primary="Settings" />
+                  </ListItem>
+                </>
+              )}
             </List>
           </Box>
         </Drawer>

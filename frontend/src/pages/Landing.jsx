@@ -157,14 +157,14 @@ export default function Landing() {
             }}
           >
             <AccordionSummary
-              expandIcon={<ExpandMore />}
-              sx={{ px: 0, py: 1, '& .MuiAccordionSummary-content': { my: 1.5 } }}
+              expandIcon={<ExpandMore sx={{ color: expandedFaq === i ? 'primary.main' : 'text.secondary' }} />}
+              sx={{ px: 2, py: 1.5, '& .MuiAccordionSummary-content': { my: 1 } }}
             >
-              <Typography variant="h5" sx={{ fontWeight: expandedFaq === i ? 700 : 500, color: expandedFaq === i ? 'primary.main' : 'text.primary' }}>
+              <Typography variant="h5" sx={{ fontWeight: expandedFaq === i ? 700 : 500, color: expandedFaq === i ? 'primary.main' : 'text.primary', pr: 2 }}>
                 {faq.q}
               </Typography>
             </AccordionSummary>
-            <AccordionDetails sx={{ px: 0, pb: 2 }}>
+            <AccordionDetails sx={{ px: 2, pb: 3, pt: 0 }}>
               <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>{faq.a}</Typography>
             </AccordionDetails>
           </Accordion>

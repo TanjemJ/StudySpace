@@ -22,6 +22,7 @@ class User(AbstractUser):
     date_of_birth = models.DateField(null=True, blank=True)
     avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
     is_email_verified = models.BooleanField(default=False)
+    last_display_name_change = models.DateTimeField(null=True, blank=True, help_text="Last time the display name was changed. 90-day cooldown.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -30,6 +31,18 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.display_name} ({self.role})"
+
+    @property
+    def can_change_display_name(self):
+        if not self.last_display_name_change:
+            return True
+        return timezone.now() > self.last_display_name_change + timezone.timedelta(days=90)
+
+    @property
+    def display_name_change_available_at(self):
+        if not self.last_display_name_change:
+            return None
+        return self.last_display_name_change + timezone.timedelta(days=90)
 
 
 class EmailVerificationCode(models.Model):
