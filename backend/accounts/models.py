@@ -22,7 +22,17 @@ class User(AbstractUser):
     date_of_birth = models.DateField(null=True, blank=True)
     avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
     is_email_verified = models.BooleanField(default=False)
+    is_deleted = models.BooleanField(default=False, help_text="Soft-deleted account. Posts remain but profile is hidden.")
+    deletion_reason = models.TextField(blank=True)
     last_display_name_change = models.DateTimeField(null=True, blank=True, help_text="Last time the display name was changed. 90-day cooldown.")
+
+    # Accessibility preferences (available to ALL roles)
+    text_size = models.CharField(max_length=20, default='medium',
+                                  choices=[('small', 'Small'), ('medium', 'Medium'),
+                                           ('large', 'Large'), ('xl', 'Extra Large')])
+    high_contrast = models.BooleanField(default=False)
+    reduced_motion = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -70,13 +80,6 @@ class StudentProfile(models.Model):
     course = models.CharField(max_length=200, blank=True)
     year_of_study = models.IntegerField(null=True, blank=True)
 
-    # Accessibility preferences
-    text_size = models.CharField(max_length=20, default='medium',
-                                  choices=[('small', 'Small'), ('medium', 'Medium'),
-                                           ('large', 'Large'), ('xl', 'Extra Large')])
-    high_contrast = models.BooleanField(default=False)
-    reduced_motion = models.BooleanField(default=False)
-
     def __str__(self):
         return f"Student: {self.user.display_name}"
 
@@ -97,6 +100,8 @@ class TutorProfile(models.Model):
     experience_years = models.IntegerField(default=0)
     company_email = models.EmailField(help_text="University/company email for verification")
     company_email_verified = models.BooleanField(default=False)
+    university = models.CharField(max_length=200, blank=True, help_text="University the tutor is affiliated with")
+    university_verified = models.BooleanField(default=False)
 
     # Verification
     verification_status = models.CharField(
@@ -149,8 +154,11 @@ class Notification(models.Model):
     class NotifType(models.TextChoices):
         BOOKING_CONFIRMED = 'booking_confirmed', 'Booking Confirmed'
         BOOKING_CANCELLED = 'booking_cancelled', 'Booking Cancelled'
+        BOOKING_REMINDER = 'booking_reminder', 'Booking Reminder'
         VERIFICATION_UPDATE = 'verification_update', 'Verification Update'
         FORUM_REPLY = 'forum_reply', 'Forum Reply'
+        FORUM_UPVOTE = 'forum_upvote', 'Forum Upvote'
+        MESSAGE = 'message', 'New Message'
         MODERATION_ACTION = 'moderation_action', 'Moderation Action'
         SYSTEM = 'system', 'System'
 
@@ -160,7 +168,7 @@ class Notification(models.Model):
     title = models.CharField(max_length=200)
     message = models.TextField()
     is_read = models.BooleanField(default=False)
-    link = models.CharField(max_length=500, blank=True)
+    link = models.CharField(max_length=500, blank=True, help_text="Frontend route to navigate to when clicked")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -168,3 +176,21 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.title} → {self.user.display_name}"
+
+
+class ContactMessage(models.Model):
+    """Contact form submissions."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='contact_messages')
+    email = models.EmailField()
+    name = models.CharField(max_length=100)
+    subject = models.CharField(max_length=200)
+    message = models.TextField(max_length=5000)
+    is_resolved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.subject} — {self.email}"

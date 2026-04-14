@@ -199,7 +199,7 @@ export default function Landing() {
             <Grid item xs={6} md={2}>
               <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>COMPANY</Typography>
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mt: 1 }}>About</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>Contact</Typography>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', cursor: 'pointer' }} onClick={() => navigate('/contact')}>Contact</Typography>
             </Grid>
             <Grid item xs={12} md={4}>
               <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>LEGAL</Typography>

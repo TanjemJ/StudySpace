@@ -18,6 +18,7 @@ import CreatePost from './pages/CreatePost';
 import AIChat from './pages/AIChat';
 import Bookings from './pages/Bookings';
 import Settings from './pages/Settings';
+import ContactUs from './pages/ContactUs';
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
@@ -66,7 +67,7 @@ export default function App() {
 
           {/* Student */}
           <Route path="/dashboard" element={<ProtectedRoute roles={['student']}><StudentDashboard /></ProtectedRoute>} />
-          <Route path="/bookings" element={<ProtectedRoute roles={['student']}><Bookings /></ProtectedRoute>} />
+          <Route path="/bookings" element={<ProtectedRoute><Bookings /></ProtectedRoute>} />
 
           {/* Tutor */}
           <Route path="/tutor-dashboard" element={<ProtectedRoute roles={['tutor']}><TutorDashboard /></ProtectedRoute>} />
@@ -82,6 +83,7 @@ export default function App() {
           <Route path="/forum/new" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />
           <Route path="/ai-assistant" element={<AIChat />} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/contact" element={<ContactUs />} />
         </Routes>
       </PageTransition>
     </>

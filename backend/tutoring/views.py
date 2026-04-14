@@ -42,6 +42,10 @@ class BookingCreateView(views.APIView):
         except AvailabilitySlot.DoesNotExist:
             return Response({'error': 'Slot not available.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Prevent tutors from booking themselves
+        if request.user.id == slot.tutor.user.id:
+            return Response({'error': 'You cannot book a session with yourself.'}, status=status.HTTP_400_BAD_REQUEST)
+
         booking = Booking.objects.create(
             student=request.user,
             tutor=slot.tutor,
@@ -64,6 +68,16 @@ class BookingCreateView(views.APIView):
         )
         booking.status = Booking.Status.CONFIRMED
         booking.save()
+
+        # Notify the tutor about the new booking
+        from accounts.models import Notification
+        Notification.objects.create(
+            user=slot.tutor.user,
+            notification_type='booking_confirmed',
+            title='New Booking',
+            message=f'{request.user.display_name} booked a {data["subject"]} session on {slot.date} at {slot.start_time}.',
+            link='/tutor-dashboard',
+        )
 
         return Response(BookingSerializer(booking).data, status=status.HTTP_201_CREATED)
 

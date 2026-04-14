@@ -24,18 +24,26 @@ class ForumPostSerializer(serializers.ModelSerializer):
         ]
 
     def get_author_name(self, obj):
-        return 'Anonymous' if obj.is_anonymous else obj.author.display_name
+        if obj.is_anonymous:
+            return 'Anonymous'
+        if obj.author.is_deleted:
+            return '[Deleted User]'
+        return obj.author.display_name
 
     def get_author_avatar(self, obj):
-        if obj.is_anonymous:
+        if obj.is_anonymous or obj.author.is_deleted:
             return None
         return obj.author.avatar.url if obj.author.avatar else None
 
     def get_author_university(self, obj):
-        if obj.is_anonymous:
+        if obj.is_anonymous or obj.author.is_deleted:
             return None
         try:
             return obj.author.student_profile.university or None
+        except Exception:
+            pass
+        try:
+            return obj.author.tutor_profile.university or None
         except Exception:
             return None
 
@@ -52,9 +60,13 @@ class ForumReplySerializer(serializers.ModelSerializer):
         ]
 
     def get_author_name(self, obj):
-        return 'Anonymous' if obj.is_anonymous else obj.author.display_name
+        if obj.is_anonymous:
+            return 'Anonymous'
+        if obj.author.is_deleted:
+            return '[Deleted User]'
+        return obj.author.display_name
 
     def get_author_avatar(self, obj):
-        if obj.is_anonymous:
+        if obj.is_anonymous or obj.author.is_deleted:
             return None
         return obj.author.avatar.url if obj.author.avatar else None

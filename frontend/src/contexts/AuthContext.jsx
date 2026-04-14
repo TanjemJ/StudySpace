@@ -38,10 +38,8 @@ export function AuthProvider({ children }) {
     localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
     localStorage.setItem('user', JSON.stringify(res.data.user));
     setUser(res.data.user);
-
-    // Immediately fetch full profile (includes student_profile with university_verified)
+    // Fetch full profile including student_profile / tutor_profile
     await fetchFullProfile();
-
     return res.data;
   };
 

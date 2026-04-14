@@ -102,7 +102,7 @@ export default function TutorProfile() {
               </Box>
               <Typography variant="h3" color="primary" sx={{ mb: 2 }}>£{tutor.hourly_rate}/hr</Typography>
               <Stack direction="row" spacing={1}>
-                <Button variant="contained" size="large" onClick={openBooking}>Book a Session</Button>
+                {user && user.id !== id ? (<Button variant="contained" size="large" onClick={openBooking}>Book a Session</Button>) : !user ? (<Button variant="contained" size="large" onClick={() => navigate("/login")}>Log in to Book</Button>) : (<Button variant="contained" size="large" disabled>This is your profile</Button>)}
                 <Button variant="outlined" size="large" disabled>Message (Coming Soon)</Button>
               </Stack>
             </Box>

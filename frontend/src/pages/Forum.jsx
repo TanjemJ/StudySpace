@@ -29,8 +29,8 @@ export default function Forum() {
   const [sortBy, setSortBy] = useState('latest');
 
   // User's verified university
-  const userUniversity = user?.student_profile?.university || '';
-  const isUniVerified = user?.student_profile?.university_verified || false;
+  const userUniversity = user?.student_profile?.university || user?.tutor_profile?.university || '';
+  const isUniVerified = user?.student_profile?.university_verified || user?.tutor_profile?.university_verified || false;
 
   useEffect(() => {
     api.get('/forum/universities/').then(r => setUniversities(r.data.universities || [])).catch(() => {});

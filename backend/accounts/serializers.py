@@ -1,24 +1,13 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-from .models import User, StudentProfile, TutorProfile, EmailVerificationCode, Notification
+from .models import User, StudentProfile, TutorProfile, EmailVerificationCode, Notification, ContactMessage
 
 
 class PasswordStrengthSerializer(serializers.Serializer):
-    """Check password strength and return score."""
     password = serializers.CharField()
 
-    def validate_password(self, value):
-        score = 0
-        if len(value) >= 8: score += 1
-        if len(value) >= 12: score += 1
-        if any(c.isupper() for c in value): score += 1
-        if any(c.islower() for c in value): score += 1
-        if any(c.isdigit() for c in value): score += 1
-        if any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in value): score += 1
-        return value, score
 
-
-# --- Step 1: Email & Password ---
+# --- Registration steps (unchanged) ---
 class RegisterStep1Serializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=8)
@@ -37,13 +26,11 @@ class RegisterStep1Serializer(serializers.Serializer):
         return data
 
 
-# --- Step 1b: Verify email code ---
 class VerifyCodeSerializer(serializers.Serializer):
     email = serializers.EmailField()
     code = serializers.CharField(max_length=6, min_length=6)
 
 
-# --- Step 2: Personal Info ---
 class RegisterStep2Serializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=50)
     last_name = serializers.CharField(max_length=50)
@@ -58,7 +45,6 @@ class RegisterStep2Serializer(serializers.Serializer):
         return value
 
 
-# --- Step 3: Student university info (optional) ---
 class RegisterStep3StudentSerializer(serializers.Serializer):
     university = serializers.CharField(required=False, allow_blank=True)
     university_email = serializers.EmailField(required=False, allow_blank=True)
@@ -66,26 +52,21 @@ class RegisterStep3StudentSerializer(serializers.Serializer):
     year_of_study = serializers.IntegerField(required=False)
 
 
-# --- Tutor extra steps ---
 class RegisterTutorStep3Serializer(serializers.Serializer):
-    """Tutor Step 3: Company/university email (mandatory)."""
     company_email = serializers.EmailField()
     subjects = serializers.ListField(child=serializers.CharField(), min_length=1)
 
 
 class RegisterTutorStep4Serializer(serializers.Serializer):
-    """Tutor Step 4: Rate & experience."""
     hourly_rate = serializers.DecimalField(max_digits=6, decimal_places=2)
     experience_years = serializers.IntegerField(min_value=0)
     personal_statement = serializers.CharField(max_length=3000, required=False)
 
 
 class RegisterTutorStep5Serializer(serializers.Serializer):
-    """Tutor Step 5: Document uploads handled via multipart form."""
-    pass  # Files handled in the view directly
+    pass
 
 
-# --- Login ---
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
@@ -93,11 +74,17 @@ class LoginSerializer(serializers.Serializer):
 
 # --- User detail ---
 class UserSerializer(serializers.ModelSerializer):
+    can_change_display_name = serializers.BooleanField(read_only=True)
+    display_name_change_available_at = serializers.DateTimeField(read_only=True)
+
     class Meta:
         model = User
         fields = ['id', 'email', 'display_name', 'first_name', 'last_name',
-                  'role', 'avatar', 'is_email_verified', 'date_of_birth', 'created_at']
-        read_only_fields = ['id', 'email', 'role', 'created_at']
+                  'role', 'avatar', 'is_email_verified', 'is_deleted', 'date_of_birth',
+                  'text_size', 'high_contrast', 'reduced_motion',
+                  'can_change_display_name', 'display_name_change_available_at',
+                  'created_at']
+        read_only_fields = ['id', 'email', 'role', 'is_deleted', 'created_at']
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):
@@ -117,13 +104,13 @@ class TutorProfileSerializer(serializers.ModelSerializer):
 
 
 class TutorCardSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for tutor search results."""
     user = UserSerializer(read_only=True)
 
     class Meta:
         model = TutorProfile
         fields = ['user', 'bio', 'subjects', 'hourly_rate', 'experience_years',
-                  'verification_status', 'average_rating', 'total_sessions', 'total_reviews']
+                  'verification_status', 'average_rating', 'total_sessions', 'total_reviews',
+                  'university', 'university_verified']
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -140,3 +127,10 @@ class CheckUsernameSerializer(serializers.Serializer):
         if User.objects.filter(display_name=value).exists():
             raise serializers.ValidationError("This username is already taken.")
         return value
+
+
+class ContactMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactMessage
+        fields = ['id', 'email', 'name', 'subject', 'message', 'created_at']
+        read_only_fields = ['id', 'created_at']

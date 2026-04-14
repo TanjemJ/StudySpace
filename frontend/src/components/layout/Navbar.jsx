@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import NotificationDropdown from './NotificationDropdown';
 import {
   AppBar, Toolbar, Typography, Button, Box, IconButton, Menu, MenuItem,
   Avatar, Chip, useMediaQuery, Drawer, List, ListItem, ListItemText, ListItemIcon,
   Divider,
 } from '@mui/material';
 import {
-  Menu as MenuIcon, School, Forum, SmartToy, Search, Notifications,
-  Person, Logout, Dashboard, BookOnline, Settings,
+  Menu as MenuIcon, Forum, SmartToy, Search,
+  Logout, Dashboard, BookOnline, Settings,
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 
@@ -35,10 +36,12 @@ export default function Navbar() {
     setMobileOpen(false);
   };
 
+  const dashboardPath = user?.role === 'tutor' ? '/tutor-dashboard'
+    : user?.role === 'admin' ? '/admin-dashboard' : '/dashboard';
+
   return (
     <AppBar position="sticky" sx={{ bgcolor: 'white', color: 'text.primary', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
       <Toolbar sx={{ maxWidth: 1200, width: '100%', mx: 'auto', px: { xs: 2, md: 3 } }}>
-        {/* Logo */}
         <Typography
           variant="h4" onClick={() => navigate('/')}
           sx={{ cursor: 'pointer', color: 'primary.main', fontWeight: 700, mr: 4, fontFamily: "'Plus Jakarta Sans'" }}
@@ -46,13 +49,11 @@ export default function Navbar() {
           StudySpace
         </Typography>
 
-        {/* Center tabs — desktop */}
         {!isMobile && (
           <Box sx={{ display: 'flex', gap: 1, flexGrow: 1, justifyContent: 'center' }}>
             {mainTabs.map((tab) => (
               <Button
-                key={tab.path}
-                startIcon={tab.icon}
+                key={tab.path} startIcon={tab.icon}
                 onClick={() => handleNav(tab.path)}
                 sx={{
                   color: isActive(tab.path) ? 'primary.main' : 'text.secondary',
@@ -70,17 +71,15 @@ export default function Navbar() {
 
         <Box sx={{ flexGrow: isMobile ? 1 : 0 }} />
 
-        {/* Right side */}
         {user ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {!isMobile && user.role === 'student' && (
-              <Button size="small" onClick={() => navigate('/dashboard')} startIcon={<Dashboard />}>
+            {/* Dashboard button — visible for ALL roles on desktop */}
+            {!isMobile && (
+              <Button size="small" onClick={() => navigate(dashboardPath)} startIcon={<Dashboard />}>
                 Dashboard
               </Button>
             )}
-            <IconButton size="small">
-              <Notifications />
-            </IconButton>
+            <NotificationDropdown />
             <Chip
               avatar={<Avatar src={user.avatar || undefined} sx={{ bgcolor: 'primary.main' }}>{user.display_name?.[0]?.toUpperCase()}</Avatar>}
               label={user.display_name}
@@ -93,10 +92,9 @@ export default function Navbar() {
                   {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                 </Typography>
               </MenuItem>
-              {user.role === 'student' && <MenuItem onClick={() => { handleNav('/dashboard'); setAnchorEl(null); }}>Dashboard</MenuItem>}
-              {user.role === 'tutor' && <MenuItem onClick={() => { handleNav('/tutor-dashboard'); setAnchorEl(null); }}>Dashboard</MenuItem>}
-              {user.role === 'admin' && <MenuItem onClick={() => { handleNav('/admin-dashboard'); setAnchorEl(null); }}>Admin Panel</MenuItem>}
-              <MenuItem onClick={() => { handleNav('/bookings'); setAnchorEl(null); }}>My Bookings</MenuItem>
+              <MenuItem onClick={() => { handleNav('/bookings'); setAnchorEl(null); }}>
+                <BookOnline sx={{ mr: 1, fontSize: 18 }} /> My Bookings
+              </MenuItem>
               <MenuItem onClick={() => { handleNav('/settings'); setAnchorEl(null); }}>
                 <Settings sx={{ mr: 1, fontSize: 18 }} /> Settings
               </MenuItem>
@@ -113,7 +111,6 @@ export default function Navbar() {
           </Box>
         )}
 
-        {/* Mobile hamburger */}
         {isMobile && (
           <IconButton onClick={() => setMobileOpen(true)} sx={{ ml: 1 }}>
             <MenuIcon />
@@ -132,6 +129,10 @@ export default function Navbar() {
               {user && (
                 <>
                   <Divider sx={{ my: 1 }} />
+                  <ListItem button onClick={() => handleNav(dashboardPath)}>
+                    <ListItemIcon><Dashboard /></ListItemIcon>
+                    <ListItemText primary="Dashboard" />
+                  </ListItem>
                   <ListItem button onClick={() => handleNav('/settings')}>
                     <ListItemIcon><Settings /></ListItemIcon>
                     <ListItemText primary="Settings" />

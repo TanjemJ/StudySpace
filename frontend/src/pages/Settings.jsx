@@ -7,10 +7,11 @@ import {
   Avatar, Tabs, Tab, Switch, FormControlLabel, Alert, Divider, IconButton,
   Chip, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions,
   ToggleButtonGroup, ToggleButton, LinearProgress, InputAdornment,
+  Radio, RadioGroup, FormControl, FormLabel,
 } from '@mui/material';
 import {
   Person, Lock, Notifications, Accessibility, Shield, PhotoCamera,
-  Delete, Edit, Save, Visibility, VisibilityOff, School, Warning,
+  Delete, Save, Visibility, VisibilityOff, School, Warning,
 } from '@mui/icons-material';
 
 function TabPanel({ children, value, index }) {
@@ -57,7 +58,7 @@ export default function Settings() {
   const [notifForum, setNotifForum] = useState(true);
   const [notifMarketing, setNotifMarketing] = useState(false);
 
-  // Accessibility
+  // Accessibility (available to ALL roles)
   const [textSize, setTextSize] = useState('medium');
   const [highContrast, setHighContrast] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -65,6 +66,8 @@ export default function Settings() {
   // Delete account
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteReasonOther, setDeleteReasonOther] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -75,19 +78,22 @@ export default function Settings() {
     setCanChangeName(user.can_change_display_name !== false);
     setNameAvailableAt(user.display_name_change_available_at || null);
 
+    // Accessibility from User model (all roles)
+    setTextSize(user.text_size || 'medium');
+    setHighContrast(user.high_contrast || false);
+    setReducedMotion(user.reduced_motion || false);
+
     if (user.student_profile) {
       setUniversity(user.student_profile.university || '');
       setCourse(user.student_profile.course || '');
       setYearOfStudy(user.student_profile.year_of_study || '');
-      setTextSize(user.student_profile.text_size || 'medium');
-      setHighContrast(user.student_profile.high_contrast || false);
-      setReducedMotion(user.student_profile.reduced_motion || false);
     }
     if (user.tutor_profile) {
       setBio(user.tutor_profile.bio || '');
       setSubjects((user.tutor_profile.subjects || []).join(', '));
       setHourlyRate(user.tutor_profile.hourly_rate || '');
       setExperience(user.tutor_profile.experience_years || '');
+      if (!university) setUniversity(user.tutor_profile.university || '');
     }
   }, [user]);
 
@@ -111,6 +117,7 @@ export default function Settings() {
         data.subjects = subjects;
         data.hourly_rate = hourlyRate;
         data.experience_years = experience;
+        data.university = university;
       }
       await api.patch('/auth/settings/profile/', data);
       await fetchFullProfile();
@@ -169,15 +176,18 @@ export default function Settings() {
 
   const handleSaveAccessibility = async () => {
     try {
-      await api.post('/auth/settings/accessibility/', { text_size: textSize, high_contrast: highContrast, reduced_motion: reducedMotion });
+      await api.post('/auth/settings/accessibility/', {
+        text_size: textSize, high_contrast: highContrast, reduced_motion: reducedMotion,
+      });
       await fetchFullProfile();
       showMsg('Accessibility settings updated.');
     } catch { showMsg('Failed to save.', true); }
   };
 
   const handleDeleteAccount = async () => {
+    const reason = deleteReason === 'other' ? deleteReasonOther : deleteReason;
     try {
-      await api.post('/auth/settings/delete-account/', { password: deletePassword });
+      await api.post('/auth/settings/delete-account/', { password: deletePassword, reason });
       logout();
       navigate('/');
     } catch (err) {
@@ -186,7 +196,6 @@ export default function Settings() {
     }
   };
 
-  // Password strength
   const pwScore = (() => {
     let s = 0;
     if (newPw.length >= 8) s++;
@@ -204,7 +213,7 @@ export default function Settings() {
     { label: 'Profile', icon: <Person sx={{ fontSize: 18 }} /> },
     { label: 'Account', icon: <Lock sx={{ fontSize: 18 }} /> },
     { label: 'Notifications', icon: <Notifications sx={{ fontSize: 18 }} /> },
-    ...(user.role === 'student' ? [{ label: 'Accessibility', icon: <Accessibility sx={{ fontSize: 18 }} /> }] : []),
+    { label: 'Accessibility', icon: <Accessibility sx={{ fontSize: 18 }} /> },
     { label: 'Privacy', icon: <Shield sx={{ fontSize: 18 }} /> },
   ];
 
@@ -225,7 +234,6 @@ export default function Settings() {
 
           {/* ===== PROFILE TAB ===== */}
           <TabPanel value={tab} index={0}>
-            {/* Avatar */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, mb: 4 }}>
               <Box sx={{ position: 'relative' }}>
                 <Avatar
@@ -254,7 +262,6 @@ export default function Settings() {
 
             <Divider sx={{ mb: 3 }} />
 
-            {/* Name fields */}
             <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
               <TextField fullWidth label="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
               <TextField fullWidth label="Last name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
@@ -262,7 +269,6 @@ export default function Settings() {
             <TextField fullWidth label="Date of birth" type="date" value={dob} onChange={(e) => setDob(e.target.value)}
               InputLabelProps={{ shrink: true }} sx={{ mb: 2 }} />
 
-            {/* Student-specific */}
             {user.role === 'student' && (
               <>
                 <Divider sx={{ my: 2 }} />
@@ -282,11 +288,15 @@ export default function Settings() {
               </>
             )}
 
-            {/* Tutor-specific */}
             {user.role === 'tutor' && (
               <>
                 <Divider sx={{ my: 2 }} />
-                <Typography variant="h5" sx={{ mb: 1.5 }}>Tutor Profile</Typography>
+                <Typography variant="h5" sx={{ mb: 1.5 }}>
+                  <School sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'text-bottom' }} />
+                  Tutor Profile
+                </Typography>
+                <TextField fullWidth label="University" value={university} onChange={(e) => setUniversity(e.target.value)} sx={{ mb: 2 }}
+                  InputProps={{ endAdornment: user.tutor_profile?.university_verified ? <Chip label="Verified" size="small" color="success" /> : null }} />
                 <TextField fullWidth multiline rows={4} label="Bio" value={bio} onChange={(e) => setBio(e.target.value)}
                   helperText={`${bio.length}/2000`} sx={{ mb: 2 }} />
                 <TextField fullWidth label="Subjects (comma separated)" value={subjects} onChange={(e) => setSubjects(e.target.value)} sx={{ mb: 2 }} />
@@ -304,7 +314,6 @@ export default function Settings() {
 
           {/* ===== ACCOUNT TAB ===== */}
           <TabPanel value={tab} index={1}>
-            {/* Display name */}
             <Typography variant="h4" sx={{ mb: 1 }}>Username</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Your public username. Can be changed once every 90 days.
@@ -325,7 +334,6 @@ export default function Settings() {
 
             <Divider sx={{ my: 3 }} />
 
-            {/* Email */}
             <Typography variant="h4" sx={{ mb: 1 }}>Email</Typography>
             <TextField fullWidth label="Email address" value={user.email} disabled sx={{ mb: 1 }}
               InputProps={{ endAdornment: user.is_email_verified ? <Chip label="Verified" size="small" color="success" /> : <Chip label="Unverified" size="small" color="warning" /> }} />
@@ -333,7 +341,6 @@ export default function Settings() {
 
             <Divider sx={{ my: 3 }} />
 
-            {/* Password */}
             <Typography variant="h4" sx={{ mb: 2 }}>Change Password</Typography>
             <TextField fullWidth label="Current password" type={showCurrentPw ? 'text' : 'password'}
               value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} sx={{ mb: 2 }}
@@ -376,34 +383,39 @@ export default function Settings() {
             </Button>
           </TabPanel>
 
-          {/* ===== ACCESSIBILITY TAB (students only) ===== */}
-          {user.role === 'student' && (
-            <TabPanel value={tab} index={3}>
-              <Typography variant="h4" sx={{ mb: 2 }}>Accessibility Preferences</Typography>
+          {/* ===== ACCESSIBILITY TAB — ALL ROLES ===== */}
+          <TabPanel value={tab} index={3}>
+            <Typography variant="h4" sx={{ mb: 2 }}>Accessibility Preferences</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Customise your StudySpace experience to suit your needs. These settings apply across the entire platform.
+            </Typography>
 
-              <Typography variant="h5" sx={{ mb: 1 }}>Text Size</Typography>
-              <ToggleButtonGroup value={textSize} exclusive onChange={(_, v) => v && setTextSize(v)} sx={{ mb: 3 }}>
-                <ToggleButton value="small"><Typography sx={{ fontSize: 12 }}>Small</Typography></ToggleButton>
-                <ToggleButton value="medium"><Typography sx={{ fontSize: 14 }}>Medium</Typography></ToggleButton>
-                <ToggleButton value="large"><Typography sx={{ fontSize: 18 }}>Large</Typography></ToggleButton>
-                <ToggleButton value="xl"><Typography sx={{ fontSize: 22 }}>Extra Large</Typography></ToggleButton>
-              </ToggleButtonGroup>
+            <Typography variant="h5" sx={{ mb: 1 }}>Text Size</Typography>
+            <ToggleButtonGroup value={textSize} exclusive onChange={(_, v) => v && setTextSize(v)} sx={{ mb: 3 }}>
+              <ToggleButton value="small"><Typography sx={{ fontSize: 12 }}>Small</Typography></ToggleButton>
+              <ToggleButton value="medium"><Typography sx={{ fontSize: 14 }}>Medium</Typography></ToggleButton>
+              <ToggleButton value="large"><Typography sx={{ fontSize: 18 }}>Large</Typography></ToggleButton>
+              <ToggleButton value="xl"><Typography sx={{ fontSize: 22 }}>Extra Large</Typography></ToggleButton>
+            </ToggleButtonGroup>
 
-              <Stack spacing={2}>
-                <FormControlLabel control={<Switch checked={highContrast} onChange={(e) => setHighContrast(e.target.checked)} />}
-                  label={<Box><Typography>High contrast mode</Typography><Typography variant="caption" color="text.secondary">Increases contrast for better readability.</Typography></Box>} />
-                <FormControlLabel control={<Switch checked={reducedMotion} onChange={(e) => setReducedMotion(e.target.checked)} />}
-                  label={<Box><Typography>Reduced motion</Typography><Typography variant="caption" color="text.secondary">Disables animations and transitions.</Typography></Box>} />
-              </Stack>
+            <Stack spacing={2}>
+              <FormControlLabel
+                control={<Switch checked={highContrast} onChange={(e) => setHighContrast(e.target.checked)} />}
+                label={<Box><Typography>High contrast mode</Typography><Typography variant="caption" color="text.secondary">Increases contrast for better readability.</Typography></Box>}
+              />
+              <FormControlLabel
+                control={<Switch checked={reducedMotion} onChange={(e) => setReducedMotion(e.target.checked)} />}
+                label={<Box><Typography>Reduced motion</Typography><Typography variant="caption" color="text.secondary">Disables animations and transitions.</Typography></Box>}
+              />
+            </Stack>
 
-              <Button variant="contained" sx={{ mt: 3 }} onClick={handleSaveAccessibility}>
-                Save Accessibility Settings
-              </Button>
-            </TabPanel>
-          )}
+            <Button variant="contained" sx={{ mt: 3 }} onClick={handleSaveAccessibility}>
+              Save Accessibility Settings
+            </Button>
+          </TabPanel>
 
           {/* ===== PRIVACY TAB ===== */}
-          <TabPanel value={tab} index={user.role === 'student' ? 4 : 3}>
+          <TabPanel value={tab} index={4}>
             <Typography variant="h4" sx={{ mb: 2 }}>Privacy & Data</Typography>
 
             <Card variant="outlined" sx={{ mb: 3, p: 2 }}>
@@ -420,7 +432,7 @@ export default function Settings() {
                 Delete Account
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Permanently delete your account and all associated data. This action cannot be undone.
+                Permanently delete your account. Your forum posts will remain but your profile will show as "[Deleted User]". This action cannot be undone.
               </Typography>
               <Button variant="outlined" color="error" startIcon={<Delete />} onClick={() => setDeleteOpen(true)}>
                 Delete My Account
@@ -431,20 +443,49 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* Delete account confirmation */}
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
+      {/* Delete account dialog with reason */}
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle color="error">Delete Account</DialogTitle>
         <DialogContent>
           <Typography sx={{ mb: 2 }}>
-            This will permanently delete your account, all bookings, forum posts, and AI conversations. This cannot be undone.
+            This will permanently deactivate your account. Your forum posts will remain visible but your name will be replaced with "[Deleted User]". This cannot be undone.
           </Typography>
-          <TextField fullWidth label="Enter your password to confirm" type="password"
-            value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} />
+
+          <FormControl component="fieldset" sx={{ mb: 2 }}>
+            <FormLabel component="legend" sx={{ mb: 1, fontWeight: 500 }}>
+              We're sorry to see you go. May we ask why you're leaving?
+            </FormLabel>
+            <RadioGroup value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)}>
+              <FormControlLabel value="not_useful" control={<Radio size="small" />} label="The platform isn't useful for me" />
+              <FormControlLabel value="found_alternative" control={<Radio size="small" />} label="I found a better alternative" />
+              <FormControlLabel value="privacy" control={<Radio size="small" />} label="Privacy concerns" />
+              <FormControlLabel value="too_complex" control={<Radio size="small" />} label="The platform is too complex" />
+              <FormControlLabel value="graduated" control={<Radio size="small" />} label="I have graduated / no longer studying" />
+              <FormControlLabel value="other" control={<Radio size="small" />} label="Other" />
+            </RadioGroup>
+          </FormControl>
+
+          {deleteReason === 'other' && (
+            <TextField
+              fullWidth multiline rows={2} label="Please tell us more (optional)"
+              value={deleteReasonOther} onChange={(e) => setDeleteReasonOther(e.target.value)}
+              sx={{ mb: 2 }}
+            />
+          )}
+
+          <Divider sx={{ my: 2 }} />
+
+          <TextField
+            fullWidth label="Enter your password to confirm" type="password"
+            value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)}
+            helperText="This is required to verify your identity."
+          />
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={handleDeleteAccount} disabled={!deletePassword}>
-            Permanently Delete
+          <Button color="error" variant="contained" onClick={handleDeleteAccount}
+            disabled={!deletePassword || !deleteReason}>
+            Permanently Delete Account
           </Button>
         </DialogActions>
       </Dialog>
