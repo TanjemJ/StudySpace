@@ -1,63 +1,65 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 import {
   Container, Typography, Grid, Card, CardContent, Box, Chip, Stack, Avatar,
-  Button, Alert, Divider, IconButton, Tooltip, Rating,
+  Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField,
+  Snackbar, Divider, Rating, IconButton,
 } from '@mui/material';
 import {
-  CalendarMonth, Payments, Star, People, CheckCircle, Close,
-  AccessTime, VideoCall, Person as PersonIcon, Chat, TrendingUp,
+  CheckCircle, Cancel, EditNote, AccessTime, Payments, Star, VideoCall,
+  Chat as ChatIcon, Person as PersonIcon, CalendarMonth, Schedule,
 } from '@mui/icons-material';
 
-
-function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-function formatTime(timeStr) {
-  if (!timeStr) return '';
-  return timeStr.substring(0, 5);
-}
-
+/**
+ * Tutor Dashboard.
+ *
+ * Update 6 changes:
+ *  - Real stats from /auth/dashboard-stats/tutor/
+ *  - Student Requests now has three buttons: Accept, Request Change, Decline
+ *    (was just Accept/Decline previously)
+ *  - Link to the new /tutor-schedule page for availability management
+ */
 export default function TutorDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
   const [bookings, setBookings] = useState([]);
-  const [reviews, setReviews] = useState([]);
+  const [stats, setStats] = useState({
+    pending_requests: 0,
+    upcoming_sessions: 0,
+    earnings_this_month: 0,
+    total_students: 0,
+    average_rating: 0,
+    total_reviews: 0,
+    total_sessions: 0,
+  });
 
-  const fetchData = () => {
-    api.get('/tutoring/bookings/').then(r => setBookings(r.data.results || r.data || [])).catch(() => {});
-    if (user?.id) {
-      api.get(`/tutoring/reviews/${user.id}/`).then(r => setReviews(r.data.results || r.data || [])).catch(() => {});
-    }
-  };
+  // Action dialog
+  const [actionDialog, setActionDialog] = useState(null); // { booking, action }
+  const [actionMsg, setActionMsg] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [snackbar, setSnackbar] = useState('');
+  const [error, setError] = useState('');
 
-  useEffect(() => { fetchData(); }, [user]);
+  const fetchData = useCallback(() => {
+    Promise.all([
+      api.get('/tutoring/bookings/').then(r => setBookings(r.data.results || r.data || [])).catch(() => {}),
+      api.get('/auth/dashboard-stats/tutor/').then(r => setStats(r.data)).catch(() => {}),
+    ]);
+  }, []);
+
+  useEffect(() => { fetchData(); }, [location.key, fetchData]);
 
   const pending = bookings.filter(b => b.status === 'pending');
   const confirmed = bookings.filter(b => b.status === 'confirmed');
   const completed = bookings.filter(b => b.status === 'completed');
-
-  // Today's sessions (today's confirmed bookings)
   const today = new Date().toISOString().slice(0, 10);
-  const todaySessions = confirmed.filter(b => b.slot_date === today);
-  const upcomingConfirmed = confirmed
-    .filter(b => b.slot_date >= today)
-    .sort((a, b) => a.slot_date.localeCompare(b.slot_date))
-    .slice(0, 5);
+  const todaysSessions = confirmed.filter(b => b.slot_date === today);
 
-  // Earnings calculation
-  const thisMonth = new Date();
-  const currentMonthEarnings = completed.filter(b => {
-    const d = new Date(b.slot_date);
-    return d.getMonth() === thisMonth.getMonth() && d.getFullYear() === thisMonth.getFullYear();
-  }).reduce((sum, b) => sum + parseFloat(b.price || 0), 0);
-
-  // Weekly earnings — last 7 days
+  // Weekly earnings chart data (last 7 days)
   const weeklyData = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
@@ -71,57 +73,117 @@ export default function TutorDashboard() {
   }
   const maxWeekly = Math.max(...weeklyData.map(d => d.amount), 1);
 
-  const avgRating = user?.tutor_profile?.average_rating || 0;
-  const totalReviews = user?.tutor_profile?.total_reviews || 0;
-  const totalSessions = user?.tutor_profile?.total_sessions || 0;
-
-  const stats = [
+  const statCards = [
     {
       label: 'Earnings This Month',
-      value: `£${currentMonthEarnings.toFixed(0)}`,
+      value: `£${stats.earnings_this_month.toFixed(0)}`,
       icon: <Payments />, color: 'success.main',
-      subtitle: completed.length + ' sessions completed',
+      subtitle: `${completed.length} sessions completed`,
     },
     {
       label: 'Sessions Completed',
-      value: totalSessions,
+      value: stats.total_sessions || 0,
       icon: <CheckCircle />, color: 'primary.main',
       subtitle: 'All time',
     },
     {
       label: 'Average Rating',
-      value: avgRating > 0 ? avgRating.toFixed(1) : '—',
+      value: stats.average_rating > 0 ? stats.average_rating.toFixed(1) : '—',
       icon: <Star />, color: 'warning.main',
-      subtitle: `From ${totalReviews} reviews`,
+      subtitle: `From ${stats.total_reviews} reviews`,
     },
     {
       label: 'Pending Requests',
-      value: pending.length,
+      value: stats.pending_requests,
       icon: <AccessTime />, color: 'info.main',
-      subtitle: pending.length > 0 ? 'Action needed' : 'Nothing pending',
+      subtitle: stats.pending_requests > 0 ? 'Action needed' : 'Nothing pending',
     },
   ];
 
-  const handleAction = async (id, action) => {
+  // --- Action handlers ---
+
+  const openAction = (booking, action) => {
+    setActionDialog({ booking, action });
+    setActionMsg('');
+    setError('');
+  };
+
+  const closeAction = () => {
+    if (!submitting) {
+      setActionDialog(null);
+      setActionMsg('');
+      setError('');
+    }
+  };
+
+  const confirmAction = async () => {
+    if (!actionDialog) return;
+    const { booking, action } = actionDialog;
+
+    // Validate
+    if (action === 'request_change' && !actionMsg.trim()) {
+      setError('Please describe the change you need.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
     try {
-      await api.post(`/tutoring/bookings/${id}/${action}/`);
+      const payload = {};
+      if (action === 'decline') payload.reason = actionMsg.trim();
+      if (action === 'request_change') payload.message = actionMsg.trim();
+
+      await api.post(`/tutoring/bookings/${booking.id}/${action}/`, payload);
+
+      const verbs = {
+        accept: 'accepted',
+        decline: 'declined',
+        request_change: 'change requested',
+        complete: 'marked complete',
+      };
+      setSnackbar(`Booking ${verbs[action]}.`);
+      setActionDialog(null);
       fetchData();
-    } catch {}
+    } catch (err) {
+      setError(err.response?.data?.error || 'Action failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Quick accept without opening the dialog
+  const quickAccept = async (booking) => {
+    try {
+      await api.post(`/tutoring/bookings/${booking.id}/accept/`);
+      setSnackbar('Booking accepted.');
+      fetchData();
+    } catch (err) {
+      setSnackbar(err.response?.data?.error || 'Failed to accept.');
+    }
   };
 
   const sessionIcon = (type) => {
     if (type === 'video') return <VideoCall sx={{ fontSize: 16, color: 'info.main' }} />;
     if (type === 'in_person') return <PersonIcon sx={{ fontSize: 16, color: 'warning.main' }} />;
-    return <Chat sx={{ fontSize: 16, color: 'primary.main' }} />;
+    return <ChatIcon sx={{ fontSize: 16, color: 'primary.main' }} />;
   };
+
+  // --- Render ---
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
         <Box>
           <Typography variant="h2">Welcome back, {user?.first_name}!</Typography>
           <Typography color="text.secondary">Here's what's happening with your tutoring today.</Typography>
         </Box>
+        <Button
+          variant="outlined"
+          startIcon={<Schedule />}
+          onClick={() => navigate('/tutor-schedule')}
+        >
+          Manage Availability
+        </Button>
       </Box>
 
       {user?.tutor_profile?.verification_status === 'approved' && (
@@ -129,21 +191,35 @@ export default function TutorDashboard() {
           Your tutor profile is <strong>approved and live</strong>. Students can find and book you.
         </Alert>
       )}
+      {user?.tutor_profile?.verification_status === 'pending' && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          Your profile is <strong>pending review</strong> by our admin team. You'll receive a notification once approved.
+        </Alert>
+      )}
+      {user?.tutor_profile?.verification_status === 'info_requested' && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          <strong>More information needed:</strong> {user.tutor_profile.rejection_reason || 'Check your notifications.'}
+        </Alert>
+      )}
+      {user?.tutor_profile?.verification_status === 'rejected' && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          Your application was rejected. Reason: {user.tutor_profile.rejection_reason || '(see your notifications)'}
+        </Alert>
+      )}
 
-      {/* Stats cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {stats.map(s => (
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {statCards.map(s => (
           <Grid item xs={6} md={3} key={s.label}>
-            <Card sx={{ height: '100%' }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    {s.label}
+            <Card>
+              <CardContent sx={{ textAlign: 'center' }}>
+                <Box sx={{ color: s.color, mb: 1 }}>{s.icon}</Box>
+                <Typography variant="h3">{s.value}</Typography>
+                <Typography variant="body2" color="text.secondary">{s.label}</Typography>
+                {s.subtitle && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    {s.subtitle}
                   </Typography>
-                  <Box sx={{ color: s.color }}>{s.icon}</Box>
-                </Box>
-                <Typography variant="h2" sx={{ fontSize: 32, fontWeight: 700, mb: 0.5 }}>{s.value}</Typography>
-                <Typography variant="caption" color="text.secondary">{s.subtitle}</Typography>
+                )}
               </CardContent>
             </Card>
           </Grid>
@@ -151,214 +227,133 @@ export default function TutorDashboard() {
       </Grid>
 
       <Grid container spacing={3}>
-        {/* LEFT: Today's sessions + Weekly earnings */}
+        {/* Left column */}
         <Grid item xs={12} md={7}>
-          {/* Today's Sessions */}
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h4">Today's Sessions</Typography>
-                <Chip label={`${todaySessions.length} today`} size="small" color="primary" variant="outlined" />
-              </Box>
-              {todaySessions.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 3 }}>
-                  <Typography color="text.secondary">No sessions scheduled for today.</Typography>
-                </Box>
-              ) : (
-                <Stack spacing={1.5}>
-                  {todaySessions.map(b => (
-                    <Box key={b.id} sx={{
-                      display: 'flex', alignItems: 'center', gap: 1.5,
-                      p: 1.5, borderRadius: 1,
-                      border: '1px solid', borderColor: 'divider',
-                    }}>
-                      <Avatar
-                        src={b.student_avatar || undefined}
-                        sx={{ bgcolor: 'info.main' }}
-                      >
-                        {b.student_first_name?.[0] || b.student_name?.[0]}
-                      </Avatar>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body1" fontWeight={500} noWrap>
-                          {b.student_first_name} {b.student_last_name}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" noWrap>
-                          {b.subject} · {formatTime(b.slot_start)} – {formatTime(b.slot_end)}
-                          {sessionIcon(b.session_type) && (
-                            <Box component="span" sx={{ ml: 1, display: 'inline-flex', verticalAlign: 'middle' }}>
-                              {sessionIcon(b.session_type)}
-                            </Box>
-                          )}
-                        </Typography>
-                      </Box>
-                      <Chip label="Confirmed" size="small" color="success" sx={{ height: 22 }} />
-                    </Box>
-                  ))}
-                </Stack>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Weekly earnings chart */}
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h4">Weekly Earnings</Typography>
-                <Chip icon={<TrendingUp sx={{ fontSize: 14 }} />} label={`£${weeklyData.reduce((s, d) => s + d.amount, 0).toFixed(0)}`}
-                  size="small" color="success" variant="outlined" />
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 160, gap: 1, pt: 2 }}>
-                {weeklyData.map((d, i) => (
-                  <Box key={i} sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
-                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'flex-end', width: '100%' }}>
-                      <Tooltip title={`£${d.amount.toFixed(0)}`}>
-                        <Box sx={{
-                          width: '80%', mx: 'auto',
-                          height: `${Math.max((d.amount / maxWeekly) * 100, 4)}%`,
-                          bgcolor: d.amount > 0 ? 'primary.main' : 'grey.200',
-                          borderRadius: '4px 4px 0 0',
-                          transition: 'all 300ms ease-out',
-                          '&:hover': { bgcolor: 'primary.dark' },
-                        }} />
-                      </Tooltip>
-                    </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>{d.day}</Typography>
-                  </Box>
-                ))}
-              </Box>
-            </CardContent>
-          </Card>
-
-          {/* Upcoming sessions */}
-          {upcomingConfirmed.length > 0 && (
-            <Card>
+          {/* Today's sessions */}
+          <Typography variant="h4" sx={{ mb: 2 }}>Today's Sessions</Typography>
+          {todaysSessions.length === 0 ? (
+            <Card sx={{ mb: 4 }}>
               <CardContent>
-                <Typography variant="h4" sx={{ mb: 2 }}>Upcoming Sessions</Typography>
-                <Stack spacing={1}>
-                  {upcomingConfirmed.map(b => (
-                    <Box key={b.id} sx={{
-                      display: 'flex', alignItems: 'center', gap: 1.5, py: 1,
-                      borderBottom: '1px solid', borderColor: 'divider',
-                      '&:last-child': { borderBottom: 'none' },
-                    }}>
-                      <Avatar src={b.student_avatar || undefined} sx={{ bgcolor: 'info.main', width: 32, height: 32, fontSize: 14 }}>
-                        {b.student_first_name?.[0]}
-                      </Avatar>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" fontWeight={500} noWrap>
-                          {b.student_first_name} {b.student_last_name}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {b.subject} · {formatDate(b.slot_date)} at {formatTime(b.slot_start)}
-                        </Typography>
-                      </Box>
-                      <Typography variant="body2" fontWeight={600} color="primary">
-                        £{b.price}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Stack>
+                <Typography color="text.secondary">No sessions today. Enjoy your day off!</Typography>
               </CardContent>
             </Card>
+          ) : (
+            <Stack spacing={1.5} sx={{ mb: 4 }}>
+              {todaysSessions.map(b => (
+                <Card key={b.id}>
+                  <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Avatar src={b.student_avatar || undefined}>{b.student_first_name?.[0]}</Avatar>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="h5">{b.student_first_name} {b.student_last_name}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {sessionIcon(b.session_type)} {b.subject} — {b.slot_start}
+                      </Typography>
+                    </Box>
+                    <Button variant="contained" size="small" startIcon={<CheckCircle />}
+                            onClick={() => openAction(b, 'complete')}>
+                      Mark Complete
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
+          )}
+
+          {/* Student requests (pending) */}
+          <Typography variant="h4" sx={{ mb: 2 }}>
+            Student Requests {pending.length > 0 && <Chip label={pending.length} color="warning" size="small" sx={{ ml: 1 }} />}
+          </Typography>
+          {pending.length === 0 ? (
+            <Card>
+              <CardContent>
+                <Typography color="text.secondary">No pending requests.</Typography>
+              </CardContent>
+            </Card>
+          ) : (
+            <Stack spacing={1.5}>
+              {pending.map(b => (
+                <Card key={b.id} sx={{ borderLeft: '4px solid', borderColor: 'warning.main' }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
+                      <Avatar src={b.student_avatar || undefined}>{b.student_first_name?.[0]}</Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="h5">{b.student_first_name} {b.student_last_name}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {sessionIcon(b.session_type)} {b.subject} — {b.slot_date} at {b.slot_start}
+                        </Typography>
+                      </Box>
+                      <Typography variant="h5" color="primary">£{b.price}</Typography>
+                    </Box>
+                    {b.student_note && (
+                      <Alert severity="info" sx={{ mb: 1.5 }}>
+                        <strong>Student's note:</strong> "{b.student_note}"
+                      </Alert>
+                    )}
+                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                      <Button variant="contained" color="success" size="small" startIcon={<CheckCircle />}
+                              onClick={() => quickAccept(b)}>
+                        Accept
+                      </Button>
+                      <Button variant="outlined" size="small" startIcon={<EditNote />}
+                              onClick={() => openAction(b, 'request_change')}>
+                        Request Change
+                      </Button>
+                      <Button variant="outlined" color="error" size="small" startIcon={<Cancel />}
+                              onClick={() => openAction(b, 'decline')}>
+                        Decline
+                      </Button>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
           )}
         </Grid>
 
-        {/* RIGHT: Student Requests + Recent Reviews */}
+        {/* Right column — weekly earnings */}
         <Grid item xs={12} md={5}>
-          {/* Student Requests */}
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h4">Student Requests</Typography>
-                {pending.length > 0 && (
-                  <Chip label={`${pending.length} pending`} size="small" color="warning" />
-                )}
-              </Box>
-              {pending.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 3 }}>
-                  <Typography color="text.secondary" variant="body2">No pending requests right now.</Typography>
-                </Box>
-              ) : (
-                <Stack spacing={2}>
-                  {pending.map(b => (
-                    <Box key={b.id} sx={{
-                      p: 1.5, borderRadius: 1,
-                      border: '1px solid', borderColor: 'divider',
-                    }}>
-                      <Box sx={{ display: 'flex', gap: 1.5, mb: 1 }}>
-                        <Avatar src={b.student_avatar || undefined} sx={{ bgcolor: 'info.main' }}>
-                          {b.student_first_name?.[0]}
-                        </Avatar>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography variant="body1" fontWeight={500} noWrap>
-                            {b.student_first_name} {b.student_last_name}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary" noWrap>
-                            {b.subject}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {formatDate(b.slot_date)} · {formatTime(b.slot_start)} – {formatTime(b.slot_end)}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      {b.student_note && (
-                        <Box sx={{ p: 1, bgcolor: 'grey.50', borderRadius: 0.5, mb: 1 }}>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                            "{b.student_note}"
-                          </Typography>
-                        </Box>
-                      )}
-                      <Stack direction="row" spacing={1}>
-                        <Button size="small" variant="contained" onClick={() => handleAction(b.id, 'accept')}>
-                          Accept
-                        </Button>
-                        <Button size="small" variant="outlined" color="error" onClick={() => handleAction(b.id, 'cancel')}>
-                          Decline
-                        </Button>
-                      </Stack>
+              <Typography variant="h5" sx={{ mb: 2 }}>Weekly Earnings</Typography>
+              <Stack spacing={1.5}>
+                {weeklyData.map(d => (
+                  <Box key={d.day}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">{d.day}</Typography>
+                      <Typography variant="body2" fontWeight={600}>£{d.amount.toFixed(0)}</Typography>
                     </Box>
-                  ))}
-                </Stack>
-              )}
+                    <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, height: 6, overflow: 'hidden' }}>
+                      <Box sx={{
+                        bgcolor: 'success.main',
+                        height: '100%',
+                        width: `${(d.amount / maxWeekly) * 100}%`,
+                        transition: 'width 0.3s',
+                      }} />
+                    </Box>
+                  </Box>
+                ))}
+              </Stack>
             </CardContent>
           </Card>
 
-          {/* Recent Reviews */}
           <Card>
             <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h4">Recent Reviews</Typography>
-                {avgRating > 0 && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Star sx={{ fontSize: 16, color: 'warning.main' }} />
-                    <Typography variant="body2" fontWeight={600}>{avgRating.toFixed(1)}</Typography>
-                  </Box>
-                )}
-              </Box>
-              {reviews.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 3 }}>
-                  <Typography color="text.secondary" variant="body2">No reviews yet.</Typography>
-                </Box>
+              <Typography variant="h5" sx={{ mb: 2 }}>Upcoming ({confirmed.length})</Typography>
+              {confirmed.length === 0 ? (
+                <Typography color="text.secondary" variant="body2">No upcoming sessions.</Typography>
               ) : (
-                <Stack spacing={1.5}>
-                  {reviews.slice(0, 3).map(r => (
-                    <Box key={r.id} sx={{
-                      p: 1.5, borderRadius: 1,
-                      border: '1px solid', borderColor: 'divider',
-                    }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                        <Avatar src={r.student_avatar || undefined} sx={{ width: 24, height: 24, bgcolor: 'info.main', fontSize: 12 }}>
-                          {r.student_name?.[0]}
-                        </Avatar>
-                        <Typography variant="body2" fontWeight={500}>{r.student_name}</Typography>
-                        <Rating value={r.rating} size="small" readOnly sx={{ ml: 'auto' }} />
+                <Stack spacing={1}>
+                  {confirmed.slice(0, 5).map(b => (
+                    <Box key={b.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CalendarMonth sx={{ fontSize: 18, color: 'text.secondary' }} />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" noWrap>
+                          {b.student_first_name} • {b.subject}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {b.slot_date} at {b.slot_start}
+                        </Typography>
                       </Box>
-                      <Typography variant="caption" color="text.secondary" sx={{
-                        display: '-webkit-box', WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                      }}>
-                        {r.comment}
-                      </Typography>
                     </Box>
                   ))}
                 </Stack>
@@ -367,6 +362,75 @@ export default function TutorDashboard() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Action dialog */}
+      <Dialog open={!!actionDialog} onClose={closeAction} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          {actionDialog?.action === 'decline' && 'Decline Booking'}
+          {actionDialog?.action === 'request_change' && 'Request a Change'}
+          {actionDialog?.action === 'complete' && 'Mark Session Complete'}
+        </DialogTitle>
+        <DialogContent dividers>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+          {actionDialog?.action === 'decline' && (
+            <>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                The booking will be cancelled and the time slot will be freed.
+                Optionally, leave a brief reason to help the student understand.
+              </Typography>
+              <TextField
+                fullWidth multiline rows={3}
+                label="Reason (optional)"
+                placeholder="e.g. I'm no longer available at that time."
+                value={actionMsg}
+                onChange={(e) => setActionMsg(e.target.value)}
+              />
+            </>
+          )}
+
+          {actionDialog?.action === 'request_change' && (
+            <>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                The booking stays pending. The student will receive your message and can cancel + rebook if needed.
+              </Typography>
+              <TextField
+                fullWidth multiline rows={3}
+                label="What change do you need?"
+                placeholder="e.g. Could we push this to 3pm instead?"
+                value={actionMsg}
+                onChange={(e) => setActionMsg(e.target.value)}
+                autoFocus
+              />
+            </>
+          )}
+
+          {actionDialog?.action === 'complete' && (
+            <Typography variant="body2">
+              Mark this session as complete? This will finalise the booking and prompt the student to leave a review.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeAction} disabled={submitting}>Cancel</Button>
+          <Button
+            variant="contained"
+            color={actionDialog?.action === 'decline' ? 'error' : 'primary'}
+            onClick={confirmAction}
+            disabled={submitting}
+          >
+            {submitting ? 'Working...' : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={!!snackbar}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar('')}
+        message={snackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Container>
   );
 }

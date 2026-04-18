@@ -65,6 +65,8 @@ class PostListView(generics.ListAPIView):
 
     def get_queryset(self):
         qs = ForumPost.objects.filter(is_flagged=False).select_related('author', 'category')
+        if not (self.request.user.is_authenticated and self.request.user.role == 'admin'):
+            qs = qs.filter(is_deleted=False)
 
         category = self.request.query_params.get('category')
         if category:

@@ -44,6 +44,7 @@ class Booking(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     session_type = models.CharField(max_length=20, choices=SessionType.choices, default=SessionType.VIDEO)
     student_note = models.TextField(blank=True, max_length=500)
+    tutor_note = models.TextField(blank=True, max_length=500)
     session_link = models.URLField(blank=True)
     price = models.DecimalField(max_digits=6, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)

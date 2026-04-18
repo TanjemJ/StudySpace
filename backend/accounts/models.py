@@ -90,6 +90,7 @@ class TutorProfile(models.Model):
     class VerificationStatus(models.TextChoices):
         PENDING = 'pending', 'Pending'
         UNDER_REVIEW = 'under_review', 'Under Review'
+        INFO_REQUESTED = 'info_requested', 'Info Requested'
         APPROVED = 'approved', 'Approved'
         REJECTED = 'rejected', 'Rejected'
 
