@@ -5,21 +5,22 @@ import api from '../utils/api';
 import {
   Container, Typography, Grid, Card, CardContent, Box, Chip, Stack, Avatar,
   Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField,
-  Snackbar, Divider, Rating, IconButton,
+  Snackbar,
 } from '@mui/material';
 import {
   CheckCircle, Cancel, EditNote, AccessTime, Payments, Star, VideoCall,
   Chat as ChatIcon, Person as PersonIcon, CalendarMonth, Schedule,
+  HourglassEmpty, SwapHoriz,
 } from '@mui/icons-material';
 
 /**
- * Tutor Dashboard.
+ * Tutor Dashboard (Update 6b).
  *
- * Update 6 changes:
- *  - Real stats from /auth/dashboard-stats/tutor/
- *  - Student Requests now has three buttons: Accept, Request Change, Decline
- *    (was just Accept/Decline previously)
- *  - Link to the new /tutor-schedule page for availability management
+ * Additions:
+ *  - New "Awaiting Student Response" section for bookings where the tutor
+ *    requested a change and is now waiting for the student's reply
+ *  - Pending requests count no longer includes change_requested (which lives
+ *    in its own section)
  */
 export default function TutorDashboard() {
   const { user } = useAuth();
@@ -37,8 +38,7 @@ export default function TutorDashboard() {
     total_sessions: 0,
   });
 
-  // Action dialog
-  const [actionDialog, setActionDialog] = useState(null); // { booking, action }
+  const [actionDialog, setActionDialog] = useState(null);
   const [actionMsg, setActionMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [snackbar, setSnackbar] = useState('');
@@ -54,12 +54,12 @@ export default function TutorDashboard() {
   useEffect(() => { fetchData(); }, [location.key, fetchData]);
 
   const pending = bookings.filter(b => b.status === 'pending');
+  const awaitingStudent = bookings.filter(b => b.status === 'change_requested');
   const confirmed = bookings.filter(b => b.status === 'confirmed');
   const completed = bookings.filter(b => b.status === 'completed');
   const today = new Date().toISOString().slice(0, 10);
   const todaysSessions = confirmed.filter(b => b.slot_date === today);
 
-  // Weekly earnings chart data (last 7 days)
   const weeklyData = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
@@ -93,14 +93,14 @@ export default function TutorDashboard() {
       subtitle: `From ${stats.total_reviews} reviews`,
     },
     {
-      label: 'Pending Requests',
-      value: stats.pending_requests,
+      label: 'Pending + Awaiting',
+      value: pending.length + awaitingStudent.length,
       icon: <AccessTime />, color: 'info.main',
-      subtitle: stats.pending_requests > 0 ? 'Action needed' : 'Nothing pending',
+      subtitle: awaitingStudent.length > 0
+        ? `${awaitingStudent.length} awaiting student`
+        : (pending.length > 0 ? 'Action needed' : 'Nothing pending'),
     },
   ];
-
-  // --- Action handlers ---
 
   const openAction = (booking, action) => {
     setActionDialog({ booking, action });
@@ -120,7 +120,6 @@ export default function TutorDashboard() {
     if (!actionDialog) return;
     const { booking, action } = actionDialog;
 
-    // Validate
     if (action === 'request_change' && !actionMsg.trim()) {
       setError('Please describe the change you need.');
       return;
@@ -138,8 +137,9 @@ export default function TutorDashboard() {
       const verbs = {
         accept: 'accepted',
         decline: 'declined',
-        request_change: 'change requested',
+        request_change: 'change requested — waiting on student',
         complete: 'marked complete',
+        cancel: 'cancelled',
       };
       setSnackbar(`Booking ${verbs[action]}.`);
       setActionDialog(null);
@@ -151,7 +151,6 @@ export default function TutorDashboard() {
     }
   };
 
-  // Quick accept without opening the dialog
   const quickAccept = async (booking) => {
     try {
       await api.post(`/tutoring/bookings/${booking.id}/accept/`);
@@ -168,14 +167,15 @@ export default function TutorDashboard() {
     return <ChatIcon sx={{ fontSize: 16, color: 'primary.main' }} />;
   };
 
-  // --- Render ---
-
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                 mb: 2, flexWrap: 'wrap', gap: 2 }}>
         <Box>
           <Typography variant="h2">Welcome back, {user?.first_name}!</Typography>
-          <Typography color="text.secondary">Here's what's happening with your tutoring today.</Typography>
+          <Typography color="text.secondary">
+            Here's what's happening with your tutoring today.
+          </Typography>
         </Box>
         <Button
           variant="outlined"
@@ -193,17 +193,19 @@ export default function TutorDashboard() {
       )}
       {user?.tutor_profile?.verification_status === 'pending' && (
         <Alert severity="warning" sx={{ mb: 3 }}>
-          Your profile is <strong>pending review</strong> by our admin team. You'll receive a notification once approved.
+          Your profile is <strong>pending review</strong> by our admin team.
         </Alert>
       )}
       {user?.tutor_profile?.verification_status === 'info_requested' && (
         <Alert severity="info" sx={{ mb: 3 }}>
-          <strong>More information needed:</strong> {user.tutor_profile.rejection_reason || 'Check your notifications.'}
+          <strong>More information needed:</strong>{' '}
+          {user.tutor_profile.rejection_reason || 'Check your notifications.'}
         </Alert>
       )}
       {user?.tutor_profile?.verification_status === 'rejected' && (
         <Alert severity="error" sx={{ mb: 3 }}>
-          Your application was rejected. Reason: {user.tutor_profile.rejection_reason || '(see your notifications)'}
+          Your application was rejected. Reason:{' '}
+          {user.tutor_profile.rejection_reason || '(see your notifications)'}
         </Alert>
       )}
 
@@ -216,7 +218,8 @@ export default function TutorDashboard() {
                 <Typography variant="h3">{s.value}</Typography>
                 <Typography variant="body2" color="text.secondary">{s.label}</Typography>
                 {s.subtitle && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary"
+                              sx={{ display: 'block', mt: 0.5 }}>
                     {s.subtitle}
                   </Typography>
                 )}
@@ -227,14 +230,13 @@ export default function TutorDashboard() {
       </Grid>
 
       <Grid container spacing={3}>
-        {/* Left column */}
         <Grid item xs={12} md={7}>
           {/* Today's sessions */}
           <Typography variant="h4" sx={{ mb: 2 }}>Today's Sessions</Typography>
           {todaysSessions.length === 0 ? (
             <Card sx={{ mb: 4 }}>
               <CardContent>
-                <Typography color="text.secondary">No sessions today. Enjoy your day off!</Typography>
+                <Typography color="text.secondary">No sessions today.</Typography>
               </CardContent>
             </Card>
           ) : (
@@ -242,9 +244,13 @@ export default function TutorDashboard() {
               {todaysSessions.map(b => (
                 <Card key={b.id}>
                   <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar src={b.student_avatar || undefined}>{b.student_first_name?.[0]}</Avatar>
+                    <Avatar src={b.student_avatar || undefined}>
+                      {b.student_first_name?.[0]}
+                    </Avatar>
                     <Box sx={{ flex: 1 }}>
-                      <Typography variant="h5">{b.student_first_name} {b.student_last_name}</Typography>
+                      <Typography variant="h5">
+                        {b.student_first_name} {b.student_last_name}
+                      </Typography>
                       <Typography variant="body2" color="text.secondary">
                         {sessionIcon(b.session_type)} {b.subject} — {b.slot_start}
                       </Typography>
@@ -261,23 +267,30 @@ export default function TutorDashboard() {
 
           {/* Student requests (pending) */}
           <Typography variant="h4" sx={{ mb: 2 }}>
-            Student Requests {pending.length > 0 && <Chip label={pending.length} color="warning" size="small" sx={{ ml: 1 }} />}
+            Student Requests
+            {pending.length > 0 && (
+              <Chip label={pending.length} color="warning" size="small" sx={{ ml: 1 }} />
+            )}
           </Typography>
           {pending.length === 0 ? (
-            <Card>
+            <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography color="text.secondary">No pending requests.</Typography>
               </CardContent>
             </Card>
           ) : (
-            <Stack spacing={1.5}>
+            <Stack spacing={1.5} sx={{ mb: 4 }}>
               {pending.map(b => (
                 <Card key={b.id} sx={{ borderLeft: '4px solid', borderColor: 'warning.main' }}>
                   <CardContent>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
-                      <Avatar src={b.student_avatar || undefined}>{b.student_first_name?.[0]}</Avatar>
+                      <Avatar src={b.student_avatar || undefined}>
+                        {b.student_first_name?.[0]}
+                      </Avatar>
                       <Box sx={{ flex: 1 }}>
-                        <Typography variant="h5">{b.student_first_name} {b.student_last_name}</Typography>
+                        <Typography variant="h5">
+                          {b.student_first_name} {b.student_last_name}
+                        </Typography>
                         <Typography variant="body2" color="text.secondary">
                           {sessionIcon(b.session_type)} {b.subject} — {b.slot_date} at {b.slot_start}
                         </Typography>
@@ -290,15 +303,16 @@ export default function TutorDashboard() {
                       </Alert>
                     )}
                     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-                      <Button variant="contained" color="success" size="small" startIcon={<CheckCircle />}
-                              onClick={() => quickAccept(b)}>
+                      <Button variant="contained" color="success" size="small"
+                              startIcon={<CheckCircle />} onClick={() => quickAccept(b)}>
                         Accept
                       </Button>
                       <Button variant="outlined" size="small" startIcon={<EditNote />}
                               onClick={() => openAction(b, 'request_change')}>
                         Request Change
                       </Button>
-                      <Button variant="outlined" color="error" size="small" startIcon={<Cancel />}
+                      <Button variant="outlined" color="error" size="small"
+                              startIcon={<Cancel />}
                               onClick={() => openAction(b, 'decline')}>
                         Decline
                       </Button>
@@ -308,9 +322,60 @@ export default function TutorDashboard() {
               ))}
             </Stack>
           )}
+
+          {/* NEW: Awaiting Student Response */}
+          {awaitingStudent.length > 0 && (
+            <>
+              <Typography variant="h4" sx={{ mb: 2 }}>
+                Awaiting Student Response
+                <Chip label={awaitingStudent.length} color="info"
+                      size="small" sx={{ ml: 1 }} />
+              </Typography>
+              <Stack spacing={1.5} sx={{ mb: 4 }}>
+                {awaitingStudent.map(b => (
+                  <Card key={b.id} sx={{ borderLeft: '4px solid', borderColor: 'info.main' }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
+                        <Avatar src={b.student_avatar || undefined}>
+                          {b.student_first_name?.[0]}
+                        </Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="h5">
+                            {b.student_first_name} {b.student_last_name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {sessionIcon(b.session_type)} {b.subject} — {b.slot_date} at {b.slot_start}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          icon={<HourglassEmpty />}
+                          label="Awaiting response"
+                          color="info" size="small"
+                        />
+                      </Box>
+                      <Alert severity="warning" icon={<SwapHoriz />} sx={{ mb: 1 }}>
+                        <strong>You asked:</strong> "{b.tutor_note}"
+                      </Alert>
+                      <Typography variant="caption" color="text.secondary">
+                        The student will see this request on their Bookings page and can accept
+                        or decline. You'll get a notification either way.
+                      </Typography>
+                      <Box sx={{ mt: 1.5 }}>
+                        <Button
+                          variant="outlined" color="error" size="small"
+                          onClick={() => openAction(b, 'cancel')}
+                        >
+                          Cancel this booking
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Stack>
+            </>
+          )}
         </Grid>
 
-        {/* Right column — weekly earnings */}
         <Grid item xs={12} md={5}>
           <Card sx={{ mb: 3 }}>
             <CardContent>
@@ -320,12 +385,14 @@ export default function TutorDashboard() {
                   <Box key={d.day}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                       <Typography variant="body2" color="text.secondary">{d.day}</Typography>
-                      <Typography variant="body2" fontWeight={600}>£{d.amount.toFixed(0)}</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        £{d.amount.toFixed(0)}
+                      </Typography>
                     </Box>
-                    <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, height: 6, overflow: 'hidden' }}>
+                    <Box sx={{ bgcolor: 'action.hover', borderRadius: 1,
+                               height: 6, overflow: 'hidden' }}>
                       <Box sx={{
-                        bgcolor: 'success.main',
-                        height: '100%',
+                        bgcolor: 'success.main', height: '100%',
                         width: `${(d.amount / maxWeekly) * 100}%`,
                         transition: 'width 0.3s',
                       }} />
@@ -338,9 +405,13 @@ export default function TutorDashboard() {
 
           <Card>
             <CardContent>
-              <Typography variant="h5" sx={{ mb: 2 }}>Upcoming ({confirmed.length})</Typography>
+              <Typography variant="h5" sx={{ mb: 2 }}>
+                Upcoming ({confirmed.length})
+              </Typography>
               {confirmed.length === 0 ? (
-                <Typography color="text.secondary" variant="body2">No upcoming sessions.</Typography>
+                <Typography color="text.secondary" variant="body2">
+                  No upcoming sessions.
+                </Typography>
               ) : (
                 <Stack spacing={1}>
                   {confirmed.slice(0, 5).map(b => (
@@ -369,6 +440,7 @@ export default function TutorDashboard() {
           {actionDialog?.action === 'decline' && 'Decline Booking'}
           {actionDialog?.action === 'request_change' && 'Request a Change'}
           {actionDialog?.action === 'complete' && 'Mark Session Complete'}
+          {actionDialog?.action === 'cancel' && 'Cancel Booking'}
         </DialogTitle>
         <DialogContent dividers>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -377,7 +449,7 @@ export default function TutorDashboard() {
             <>
               <Typography variant="body2" sx={{ mb: 2 }}>
                 The booking will be cancelled and the time slot will be freed.
-                Optionally, leave a brief reason to help the student understand.
+                Optionally, leave a brief reason.
               </Typography>
               <TextField
                 fullWidth multiline rows={3}
@@ -392,7 +464,9 @@ export default function TutorDashboard() {
           {actionDialog?.action === 'request_change' && (
             <>
               <Typography variant="body2" sx={{ mb: 2 }}>
-                The booking stays pending. The student will receive your message and can cancel + rebook if needed.
+                The booking will be flagged as awaiting the student's response. The student will
+                see your message on their Bookings page and can accept the change (confirming the
+                booking) or decline (cancelling it).
               </Typography>
               <TextField
                 fullWidth multiline rows={3}
@@ -407,7 +481,14 @@ export default function TutorDashboard() {
 
           {actionDialog?.action === 'complete' && (
             <Typography variant="body2">
-              Mark this session as complete? This will finalise the booking and prompt the student to leave a review.
+              Mark this session as complete? This will finalise the booking and prompt the
+              student to leave a review.
+            </Typography>
+          )}
+
+          {actionDialog?.action === 'cancel' && (
+            <Typography variant="body2">
+              Cancel this booking? The student will be notified and the time slot will be freed.
             </Typography>
           )}
         </DialogContent>
@@ -415,7 +496,7 @@ export default function TutorDashboard() {
           <Button onClick={closeAction} disabled={submitting}>Cancel</Button>
           <Button
             variant="contained"
-            color={actionDialog?.action === 'decline' ? 'error' : 'primary'}
+            color={['decline', 'cancel'].includes(actionDialog?.action) ? 'error' : 'primary'}
             onClick={confirmAction}
             disabled={submitting}
           >

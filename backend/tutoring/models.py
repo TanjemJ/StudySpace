@@ -28,6 +28,7 @@ class Booking(models.Model):
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending'
         CONFIRMED = 'confirmed', 'Confirmed'
+        CHANGE_REQUESTED = 'change_requested', 'Change Requested'
         COMPLETED = 'completed', 'Completed'
         CANCELLED = 'cancelled', 'Cancelled'
 

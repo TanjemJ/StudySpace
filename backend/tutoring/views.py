@@ -1,23 +1,10 @@
-"""
-Tutoring app views (Update 6).
-
-Key changes:
-- BookingCreateView no longer auto-confirms. Bookings are created with
-  status=PENDING and the tutor must accept/decline/request a change.
-- BookingActionView now supports four actions: accept, decline, request_change,
-  cancel, complete.
-- ReviewCreateView unchanged except cleaned up.
-- AvailabilityListCreateView now supports `repeat_weekly` to create 8 weekly
-  slots at once.
-"""
 from datetime import datetime, timedelta
 from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 from django.db.models import Avg
-from django.shortcuts import get_object_or_404
 
 from .models import AvailabilitySlot, Booking, PaymentRecord, Review
-from accounts.models import TutorProfile, Notification
+from accounts.models import Notification
 from .serializers import (
     AvailabilitySlotSerializer, BookingSerializer, BookingCreateSerializer,
     ReviewSerializer, ReviewCreateSerializer,
@@ -54,7 +41,6 @@ class AvailabilityListCreateView(generics.ListCreateAPIView):
         tutor_profile = request.user.tutor_profile
         repeat = str(data.get('repeat_weekly', '')).lower() in ('true', '1', 'yes')
 
-        # Parse the base date
         try:
             base_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
         except (KeyError, ValueError):
@@ -87,7 +73,6 @@ class AvailabilityDeleteView(generics.DestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Tutors can only delete their own unbooked slots
         return AvailabilitySlot.objects.filter(
             tutor=self.request.user.tutor_profile, is_booked=False,
         )
@@ -98,18 +83,6 @@ class AvailabilityDeleteView(generics.DestroyAPIView):
 # ============================================================================
 
 class BookingCreateView(views.APIView):
-    """
-    Create a booking in PENDING state — the tutor must accept it.
-
-    Previously this view auto-confirmed the booking right after payment.
-    That meant tutors had no say over who booked them. The new flow:
-
-        Student books slot -> Booking(status=pending, slot.is_booked=True,
-                                      payment=completed-mock)
-        Tutor accepts       -> Booking(status=confirmed), student notified
-        Tutor declines      -> Booking(status=cancelled), slot freed, student notified
-        Tutor requests chg  -> Booking keeps pending, tutor_note set, student notified
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -122,7 +95,6 @@ class BookingCreateView(views.APIView):
         except AvailabilitySlot.DoesNotExist:
             return Response({'error': 'Slot not available.'}, status=400)
 
-        # Prevent tutors booking themselves
         if request.user.id == slot.tutor.user.id:
             return Response({'error': 'You cannot book a session with yourself.'}, status=400)
 
@@ -134,14 +106,11 @@ class BookingCreateView(views.APIView):
             session_type=data.get('session_type', 'video'),
             student_note=data.get('student_note', ''),
             price=slot.tutor.hourly_rate,
-            status=Booking.Status.PENDING,  # <<< was CONFIRMED
+            status=Booking.Status.PENDING,
         )
-        # Reserve the slot so another student can't grab it while the tutor decides
         slot.is_booked = True
         slot.save()
 
-        # Mock payment captured — we treat this like an authorise hold.
-        # If the tutor declines, we'd refund in a real integration.
         PaymentRecord.objects.create(
             booking=booking,
             amount=booking.price,
@@ -149,10 +118,9 @@ class BookingCreateView(views.APIView):
             status=PaymentRecord.PaymentStatus.COMPLETED,
         )
 
-        # Notify the tutor — they need to respond.
         Notification.objects.create(
             user=slot.tutor.user,
-            notification_type='booking_confirmed',  # (reusing existing choice)
+            notification_type='booking_confirmed',
             title='New booking request',
             message=f'{request.user.display_name} requested a {data["subject"]} session '
                     f'on {slot.date} at {slot.start_time}.',
@@ -168,7 +136,6 @@ class BookingListView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        qs = None
         if user.role == 'student':
             qs = Booking.objects.filter(student=user)
         elif user.role == 'tutor' and hasattr(user, 'tutor_profile'):
@@ -180,7 +147,6 @@ class BookingListView(generics.ListAPIView):
 
         qs = qs.select_related('tutor__user', 'student', 'slot')
 
-        # Optional status filter
         status_filter = self.request.query_params.get('status')
         if status_filter:
             qs = qs.filter(status=status_filter)
@@ -192,23 +158,29 @@ class BookingActionView(views.APIView):
     """
     Mutate a booking's status.
 
-    Actions:
-        accept           (tutor only) pending -> confirmed
-        decline          (tutor only) pending -> cancelled, slot freed
-        request_change   (tutor only) pending -> pending (sets tutor_note, notifies student)
-        cancel           (student or tutor) confirmed -> cancelled, slot freed
-        complete         (tutor only) confirmed -> completed, prompts student for review
+    Permitted transitions:
+        pending           -> confirmed        (tutor: accept)
+        pending           -> cancelled        (tutor: decline)
+        pending           -> change_requested (tutor: request_change)
+        change_requested  -> confirmed        (student: accept_change)     NEW
+        change_requested  -> cancelled        (student: decline_change)    NEW
+        confirmed         -> cancelled        (either: cancel)
+        pending           -> cancelled        (either: cancel)
+        confirmed         -> completed        (tutor: complete)
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk, action):
         try:
-            booking = Booking.objects.select_related('tutor__user', 'student', 'slot').get(id=pk)
+            booking = Booking.objects.select_related(
+                'tutor__user', 'student', 'slot',
+            ).get(id=pk)
         except Booking.DoesNotExist:
             return Response({'error': 'Booking not found.'}, status=404)
 
         user = request.user
-        is_tutor = hasattr(user, 'tutor_profile') and booking.tutor == user.tutor_profile
+        is_tutor = (hasattr(user, 'tutor_profile') and
+                    booking.tutor == user.tutor_profile)
         is_student = booking.student == user
 
         # ---- accept (tutor) ----
@@ -223,8 +195,8 @@ class BookingActionView(views.APIView):
                 user=booking.student,
                 notification_type='booking_confirmed',
                 title='Booking confirmed',
-                message=f'{booking.tutor.user.display_name} accepted your session on '
-                        f'{booking.slot.date} at {booking.slot.start_time}.',
+                message=(f'{booking.tutor.user.display_name} accepted your session on '
+                         f'{booking.slot.date} at {booking.slot.start_time}.'),
                 link='/bookings',
             )
             return Response(BookingSerializer(booking).data)
@@ -240,7 +212,6 @@ class BookingActionView(views.APIView):
             if hasattr(booking, 'tutor_note'):
                 booking.tutor_note = reason
             booking.save()
-            # Free the slot
             booking.slot.is_booked = False
             booking.slot.save()
             Notification.objects.create(
@@ -258,19 +229,66 @@ class BookingActionView(views.APIView):
             if not is_tutor:
                 return Response({'error': 'Only the tutor can request changes.'}, status=403)
             if booking.status != Booking.Status.PENDING:
-                return Response({'error': 'Only pending bookings can have change requests.'}, status=400)
+                return Response({'error': 'Only pending bookings can have change requests.'},
+                                status=400)
             message = (request.data.get('message') or '').strip()
             if not message:
-                return Response({'error': 'A message is required when requesting a change.'}, status=400)
+                return Response({'error': 'A message is required when requesting a change.'},
+                                status=400)
+
+            booking.status = Booking.Status.CHANGE_REQUESTED
             if hasattr(booking, 'tutor_note'):
-                booking.tutor_note = f'Change requested: {message}'
-                booking.save()
+                booking.tutor_note = message
+            booking.save()
             Notification.objects.create(
                 user=booking.student,
-                notification_type='booking_confirmed',  # reuses existing choice
-                title='Tutor suggested a change to your booking',
-                message=message,
+                notification_type='booking_confirmed',
+                title='Tutor requested a change to your booking',
+                message=f'{booking.tutor.user.display_name}: "{message}". '
+                        f'Open Bookings to respond.',
                 link='/bookings',
+            )
+            return Response(BookingSerializer(booking).data)
+
+        # ---- accept_change (student) [NEW] ----
+        if action == 'accept_change':
+            if not is_student:
+                return Response({'error': 'Only the student can accept the change.'},
+                                status=403)
+            if booking.status != Booking.Status.CHANGE_REQUESTED:
+                return Response({'error': 'This booking has no pending change request.'},
+                                status=400)
+            booking.status = Booking.Status.CONFIRMED
+            booking.save()
+            Notification.objects.create(
+                user=booking.tutor.user,
+                notification_type='booking_confirmed',
+                title='Student accepted the changes',
+                message=(f'{booking.student.display_name} agreed to your suggested change. '
+                         f'The session is now confirmed.'),
+                link='/tutor-dashboard',
+            )
+            return Response(BookingSerializer(booking).data)
+
+        # ---- decline_change (student) [NEW] ----
+        if action == 'decline_change':
+            if not is_student:
+                return Response({'error': 'Only the student can decline the change.'},
+                                status=403)
+            if booking.status != Booking.Status.CHANGE_REQUESTED:
+                return Response({'error': 'This booking has no pending change request.'},
+                                status=400)
+            booking.status = Booking.Status.CANCELLED
+            booking.save()
+            booking.slot.is_booked = False
+            booking.slot.save()
+            Notification.objects.create(
+                user=booking.tutor.user,
+                notification_type='booking_cancelled',
+                title='Student declined the changes',
+                message=(f'{booking.student.display_name} could not accept your suggested '
+                         f'change, so the booking has been cancelled.'),
+                link='/tutor-dashboard',
             )
             return Response(BookingSerializer(booking).data)
 
@@ -298,19 +316,20 @@ class BookingActionView(views.APIView):
         # ---- complete (tutor) ----
         if action == 'complete':
             if not is_tutor:
-                return Response({'error': 'Only the tutor can complete a session.'}, status=403)
+                return Response({'error': 'Only the tutor can complete a session.'},
+                                status=403)
             if booking.status != Booking.Status.CONFIRMED:
-                return Response({'error': 'Only confirmed sessions can be completed.'}, status=400)
+                return Response({'error': 'Only confirmed sessions can be completed.'},
+                                status=400)
             booking.status = Booking.Status.COMPLETED
             booking.save()
-            # Increment tutor's total_sessions counter
             booking.tutor.total_sessions = Booking.objects.filter(
                 tutor=booking.tutor, status='completed',
             ).count()
             booking.tutor.save()
             Notification.objects.create(
                 user=booking.student,
-                notification_type='forum_reply',  # no dedicated type, reuse
+                notification_type='forum_reply',
                 title='How was your session?',
                 message=f'Leave a review for {booking.tutor.user.display_name}.',
                 link='/bookings',
@@ -347,17 +366,15 @@ class ReviewCreateView(views.APIView):
             rating=data['rating'], comment=data['comment'],
         )
 
-        # Recalculate tutor's rating
         tutor = booking.tutor
         avg = Review.objects.filter(tutor=tutor).aggregate(avg=Avg('rating'))['avg']
         tutor.average_rating = round(avg, 1) if avg else 0
         tutor.total_reviews = Review.objects.filter(tutor=tutor).count()
         tutor.save()
 
-        # Notify the tutor
         Notification.objects.create(
             user=tutor.user,
-            notification_type='forum_reply',  # no dedicated 'new_review' choice yet
+            notification_type='forum_reply',
             title=f'{request.user.display_name} left you a {data["rating"]}-star review',
             message=(data['comment'] or '')[:100],
             link=f'/tutors/{tutor.user.id}',
