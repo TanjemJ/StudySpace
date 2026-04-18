@@ -19,6 +19,7 @@ import AIChat from './pages/AIChat';
 import Bookings from './pages/Bookings';
 import Settings from './pages/Settings';
 import ContactUs from './pages/ContactUs';
+import UserProfile from './pages/UserProfile';
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
@@ -65,19 +66,15 @@ export default function App() {
           <Route path="/login" element={user ? <Navigate to={getDashboardRoute()} /> : <Login />} />
           <Route path="/signup" element={user ? <Navigate to={getDashboardRoute()} /> : <SignUp />} />
 
-          {/* Student */}
           <Route path="/dashboard" element={<ProtectedRoute roles={['student']}><StudentDashboard /></ProtectedRoute>} />
           <Route path="/bookings" element={<ProtectedRoute><Bookings /></ProtectedRoute>} />
 
-          {/* Tutor */}
           <Route path="/tutor-dashboard" element={<ProtectedRoute roles={['tutor']}><TutorDashboard /></ProtectedRoute>} />
-
-          {/* Admin */}
           <Route path="/admin-dashboard" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
 
-          {/* Public / Shared */}
           <Route path="/tutors" element={<TutorSearch />} />
           <Route path="/tutors/:id" element={<TutorProfile />} />
+          <Route path="/users/:id" element={<UserProfile />} />
           <Route path="/forum" element={<Forum />} />
           <Route path="/forum/post/:id" element={<ForumThread />} />
           <Route path="/forum/new" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />

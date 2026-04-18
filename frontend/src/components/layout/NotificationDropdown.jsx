@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import {
   IconButton, Badge, Popover, Box, Typography, List, ListItemButton,
-  ListItemText, Divider, Button, Chip,
+  ListItemText, Divider, Button,
 } from '@mui/material';
 import {
   Notifications as NotifIcon, CalendarMonth, Forum, Message,
@@ -43,7 +43,7 @@ export default function NotificationDropdown() {
 
   useEffect(() => {
     fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000); // Poll every 30s
+    const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -81,10 +81,29 @@ export default function NotificationDropdown() {
 
   return (
     <>
-      <IconButton size="small" onClick={handleOpen}>
-        <Badge badgeContent={unreadCount} color="error" max={9}>
-          <NotifIcon />
-        </Badge>
+      <IconButton size="small" onClick={handleOpen} sx={{ position: 'relative' }}>
+        <NotifIcon />
+        {/* Red dot indicator + badge counter */}
+        {unreadCount > 0 && (
+          <Box sx={{
+            position: 'absolute', top: 4, right: 4,
+            minWidth: 16, height: 16, px: 0.5,
+            borderRadius: '50%',
+            bgcolor: '#DC2626',
+            color: 'white',
+            fontSize: 10, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: '2px solid white',
+            boxShadow: '0 0 0 2px #DC2626',
+            animation: 'pulse 2s ease-in-out infinite',
+            '@keyframes pulse': {
+              '0%, 100%': { boxShadow: '0 0 0 2px #DC2626' },
+              '50%': { boxShadow: '0 0 0 4px rgba(220, 38, 38, 0.3)' },
+            },
+          }}>
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </Box>
+        )}
       </IconButton>
 
       <Popover

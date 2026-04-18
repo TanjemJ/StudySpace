@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 import { Container, Typography, Grid, Card, CardContent, Button, Box, Chip, Stack, Avatar } from '@mui/material';
@@ -8,12 +8,18 @@ import { CalendarMonth, Forum, SmartToy, AccessTime, Search, Edit, Chat } from '
 export default function StudentDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Refresh on every navigation to this page (not just on mount)
   useEffect(() => {
-    api.get('/tutoring/bookings/').then(r => setBookings(r.data.results || r.data || [])).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+    setLoading(true);
+    api.get('/tutoring/bookings/')
+      .then(r => setBookings(r.data.results || r.data || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [location.key]);
 
   const upcoming = bookings.filter(b => b.status === 'confirmed');
   const stats = [
@@ -40,7 +46,6 @@ export default function StudentDashboard() {
         ))}
       </Grid>
 
-      {/* Quick Actions */}
       <Typography variant="h4" sx={{ mb: 2 }}>Quick Actions</Typography>
       <Grid container spacing={2} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={4}>
@@ -60,7 +65,6 @@ export default function StudentDashboard() {
         </Grid>
       </Grid>
 
-      {/* Upcoming Sessions */}
       <Typography variant="h4" sx={{ mb: 2 }}>Upcoming Sessions</Typography>
       {upcoming.length === 0 ? (
         <Card><CardContent><Typography color="text.secondary">No upcoming sessions. <Button onClick={() => navigate('/tutors')}>Find a tutor</Button></Typography></CardContent></Card>
@@ -68,7 +72,7 @@ export default function StudentDashboard() {
         <Stack spacing={2}>
           {upcoming.slice(0, 3).map(b => (
             <Card key={b.id}><CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar sx={{ bgcolor: 'primary.main' }}>{b.tutor_name?.[0]}</Avatar>
+              <Avatar src={b.tutor_avatar || undefined} sx={{ bgcolor: 'primary.main' }}>{b.tutor_name?.[0]}</Avatar>
               <Box sx={{ flex: 1 }}>
                 <Typography variant="h5">{b.tutor_name}</Typography>
                 <Typography variant="body2" color="text.secondary">{b.subject} — {b.slot_date} at {b.slot_start}</Typography>

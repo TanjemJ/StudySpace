@@ -1,24 +1,22 @@
 from rest_framework import generics, status, permissions, views
 from rest_framework.response import Response
-from django.db.models import Q
-from .models import ForumCategory, ForumPost, ForumReply, PostVote
-from .serializers import ForumCategorySerializer, ForumPostSerializer, ForumReplySerializer
+from django.db.models import Q, Prefetch
+from django.utils import timezone
+from .models import ForumCategory, ForumPost, ForumReply, PostVote, Report
+from .serializers import ForumCategorySerializer, ForumPostSerializer, ForumReplySerializer, ReportSerializer
 
 FLAGGED_KEYWORDS = ['hate', 'kill', 'threat', 'abuse', 'harass', 'racist', 'sexist']
 
 
 def _get_user_university(user):
-    """Return the user's university — works for BOTH students AND tutors."""
     if not user or not user.is_authenticated:
         return ''
-    # Check student profile first
     try:
         uni = user.student_profile.university
         if uni:
             return uni
     except Exception:
         pass
-    # Check tutor profile
     try:
         uni = user.tutor_profile.university
         if uni:
@@ -26,23 +24,6 @@ def _get_user_university(user):
     except Exception:
         pass
     return ''
-
-
-def _user_university_verified(user):
-    """Check if user has verified their university — works for BOTH roles."""
-    if not user or not user.is_authenticated:
-        return False
-    try:
-        if user.student_profile.university_verified:
-            return True
-    except Exception:
-        pass
-    try:
-        if user.tutor_profile.university_verified:
-            return True
-    except Exception:
-        pass
-    return False
 
 
 class CategoryListView(generics.ListAPIView):
@@ -53,7 +34,6 @@ class CategoryListView(generics.ListAPIView):
         qs = ForumCategory.objects.all()
         user = self.request.user
         university = self.request.query_params.get('university', None)
-
         if university:
             qs = qs.filter(Q(university='') | Q(university=university))
         else:
@@ -85,8 +65,6 @@ class PostListView(generics.ListAPIView):
 
     def get_queryset(self):
         qs = ForumPost.objects.filter(is_flagged=False).select_related('author', 'category')
-        # Exclude soft-deleted users' non-anonymous posts from showing their name
-        # (they still appear but author shows as deleted)
 
         category = self.request.query_params.get('category')
         if category:
@@ -138,6 +116,37 @@ class PostDetailView(generics.RetrieveAPIView):
     queryset = ForumPost.objects.select_related('author', 'category')
 
 
+class PostEditView(views.APIView):
+    """Edit a post within 24 hours of creation."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        try:
+            post = ForumPost.objects.get(id=pk)
+        except ForumPost.DoesNotExist:
+            return Response({'error': 'Post not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if post.author != request.user:
+            return Response({'error': 'You can only edit your own posts.'}, status=status.HTTP_403_FORBIDDEN)
+
+        if not post.is_editable:
+            return Response({'error': 'Posts can only be edited within 24 hours of creation.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        if 'title' in request.data:
+            post.title = request.data['title']
+        if 'content' in request.data:
+            post.content = request.data['content']
+        if 'tags' in request.data:
+            post.tags = request.data['tags']
+
+        post.is_edited = True
+        post.edited_at = timezone.now()
+        post.save()
+
+        return Response(ForumPostSerializer(post, context={'request': request}).data)
+
+
 class PostCreateView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -148,14 +157,14 @@ class PostCreateView(views.APIView):
         content = data.get('content', '')
 
         if not category_id or not title or not content:
-            return Response({'error': 'category_id, title, and content are required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'category_id, title, and content are required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         try:
             category = ForumCategory.objects.get(id=category_id)
         except ForumCategory.DoesNotExist:
             return Response({'error': 'Category not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Check university access for both students AND tutors
         if category.is_university_only and category.university:
             user_uni = _get_user_university(request.user)
             if user_uni != category.university:
@@ -185,41 +194,100 @@ class PostCreateView(views.APIView):
         category.post_count = ForumPost.objects.filter(category=category, is_flagged=False).count()
         category.save()
 
-        return Response(ForumPostSerializer(post).data, status=status.HTTP_201_CREATED)
+        return Response(ForumPostSerializer(post, context={'request': request}).data,
+                        status=status.HTTP_201_CREATED)
 
 
 class ReplyListCreateView(generics.ListCreateAPIView):
+    """List replies for a post (only top-level; children are nested in response)."""
     serializer_class = ForumReplySerializer
 
+    def get_serializer_context(self):
+        return {'request': self.request}
+
     def get_queryset(self):
-        return ForumReply.objects.filter(post_id=self.kwargs['post_id'], is_flagged=False).select_related('author')
+        # Only return top-level replies; children are nested inside
+        return ForumReply.objects.filter(
+            post_id=self.kwargs['post_id'],
+            parent=None,
+            is_flagged=False
+        ).select_related('author').prefetch_related('children__author')
 
     def perform_create(self, serializer):
         from accounts.models import Notification
         post = ForumPost.objects.get(id=self.kwargs['post_id'])
-        reply = serializer.save(author=self.request.user, post=post)
-        post.reply_count = post.replies.filter(is_flagged=False).count()
+        parent_id = self.request.data.get('parent_id')
+        parent = None
+        if parent_id:
+            try:
+                parent = ForumReply.objects.get(id=parent_id, post=post)
+                # Prevent deep nesting — if parent already has a parent, attach to same parent
+                if parent.parent is not None:
+                    parent = parent.parent
+            except ForumReply.DoesNotExist:
+                pass
+
+        reply = serializer.save(author=self.request.user, post=post, parent=parent)
+
+        post.reply_count = ForumReply.objects.filter(post=post, is_flagged=False).count()
         post.save()
 
-        # Send notification to post author (if not replying to own post)
-        if post.author != self.request.user:
+        # Notify original author (post or parent reply)
+        notify_target = parent.author if parent else post.author
+        if notify_target != self.request.user:
             author_name = 'Someone' if reply.is_anonymous else self.request.user.display_name
+            if parent:
+                title = 'New reply to your comment'
+                message = f'{author_name} replied to your comment on "{post.title}"'
+            else:
+                title = 'New reply to your post'
+                message = f'{author_name} replied to "{post.title}"'
             Notification.objects.create(
-                user=post.author,
+                user=notify_target,
                 notification_type='forum_reply',
-                title='New reply to your post',
-                message=f'{author_name} replied to "{post.title}"',
+                title=title,
+                message=message,
                 link=f'/forum/post/{post.id}',
             )
 
 
-class VoteView(views.APIView):
+class ReplyEditView(views.APIView):
+    """Edit a reply within 24 hours of creation."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        try:
+            reply = ForumReply.objects.get(id=pk)
+        except ForumReply.DoesNotExist:
+            return Response({'error': 'Reply not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if reply.author != request.user:
+            return Response({'error': 'You can only edit your own replies.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        if not reply.is_editable:
+            return Response({'error': 'Replies can only be edited within 24 hours.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        if 'content' in request.data:
+            reply.content = request.data['content']
+
+        reply.is_edited = True
+        reply.edited_at = timezone.now()
+        reply.save()
+
+        return Response(ForumReplySerializer(reply, context={'request': request}).data)
+
+
+class PostVoteView(views.APIView):
+    """Vote on a post."""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, post_id):
         vt = request.data.get('vote_type')
         if vt not in ('up', 'down'):
-            return Response({'error': 'vote_type must be "up" or "down".'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'vote_type must be "up" or "down".'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         try:
             post = ForumPost.objects.get(id=post_id)
@@ -227,11 +295,13 @@ class VoteView(views.APIView):
             return Response({'error': 'Post not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         existing = PostVote.objects.filter(user=request.user, post=post).first()
+        user_vote = None
         if existing:
             if existing.vote_type == vt:
                 existing.delete()
                 if vt == 'up': post.upvotes = max(0, post.upvotes - 1)
                 else: post.downvotes = max(0, post.downvotes - 1)
+                user_vote = None
             else:
                 if existing.vote_type == 'up': post.upvotes = max(0, post.upvotes - 1)
                 else: post.downvotes = max(0, post.downvotes - 1)
@@ -239,27 +309,111 @@ class VoteView(views.APIView):
                 existing.save()
                 if vt == 'up': post.upvotes += 1
                 else: post.downvotes += 1
+                user_vote = vt
         else:
             PostVote.objects.create(user=request.user, post=post, vote_type=vt)
             if vt == 'up': post.upvotes += 1
             else: post.downvotes += 1
-
+            user_vote = vt
         post.save()
-        return Response({'upvotes': post.upvotes, 'downvotes': post.downvotes})
+        return Response({'upvotes': post.upvotes, 'downvotes': post.downvotes, 'user_vote': user_vote})
+
+
+class ReplyVoteView(views.APIView):
+    """Vote on a reply."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, reply_id):
+        vt = request.data.get('vote_type')
+        if vt not in ('up', 'down'):
+            return Response({'error': 'vote_type must be "up" or "down".'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            reply = ForumReply.objects.get(id=reply_id)
+        except ForumReply.DoesNotExist:
+            return Response({'error': 'Reply not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        existing = PostVote.objects.filter(user=request.user, reply=reply).first()
+        user_vote = None
+        if existing:
+            if existing.vote_type == vt:
+                existing.delete()
+                if vt == 'up': reply.upvotes = max(0, reply.upvotes - 1)
+                else: reply.downvotes = max(0, reply.downvotes - 1)
+                user_vote = None
+            else:
+                if existing.vote_type == 'up': reply.upvotes = max(0, reply.upvotes - 1)
+                else: reply.downvotes = max(0, reply.downvotes - 1)
+                existing.vote_type = vt
+                existing.save()
+                if vt == 'up': reply.upvotes += 1
+                else: reply.downvotes += 1
+                user_vote = vt
+        else:
+            PostVote.objects.create(user=request.user, reply=reply, vote_type=vt)
+            if vt == 'up': reply.upvotes += 1
+            else: reply.downvotes += 1
+            user_vote = vt
+        reply.save()
+        return Response({'upvotes': reply.upvotes, 'downvotes': reply.downvotes, 'user_vote': user_vote})
 
 
 class ReportPostView(views.APIView):
+    """Report a post with a reason."""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, post_id):
+        serializer = ReportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
             post = ForumPost.objects.get(id=post_id)
-            post.is_flagged = True
-            post.flag_reason = request.data.get('reason', 'Reported by user')
-            post.save()
-            return Response({'message': 'Post reported. Thank you for helping keep the community safe.'})
         except ForumPost.DoesNotExist:
             return Response({'error': 'Post not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        Report.objects.create(
+            reporter=request.user,
+            post=post,
+            reason=serializer.validated_data['reason'],
+            details=serializer.validated_data.get('details', ''),
+        )
+
+        # Auto-flag if 3+ reports
+        if Report.objects.filter(post=post, status='pending').count() >= 3:
+            post.is_flagged = True
+            post.flag_reason = f'Auto-flagged: 3+ user reports'
+            post.save()
+
+        return Response({'message': 'Report submitted. Our moderation team will review it.'},
+                        status=status.HTTP_201_CREATED)
+
+
+class ReportReplyView(views.APIView):
+    """Report a reply with a reason."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, reply_id):
+        serializer = ReportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            reply = ForumReply.objects.get(id=reply_id)
+        except ForumReply.DoesNotExist:
+            return Response({'error': 'Reply not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        Report.objects.create(
+            reporter=request.user,
+            reply=reply,
+            reason=serializer.validated_data['reason'],
+            details=serializer.validated_data.get('details', ''),
+        )
+
+        if Report.objects.filter(reply=reply, status='pending').count() >= 3:
+            reply.is_flagged = True
+            reply.flag_reason = f'Auto-flagged: 3+ user reports'
+            reply.save()
+
+        return Response({'message': 'Report submitted. Our moderation team will review it.'},
+                        status=status.HTTP_201_CREATED)
 
 
 class ForumStatsView(views.APIView):

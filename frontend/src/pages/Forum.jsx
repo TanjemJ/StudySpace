@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 import {
   Container, Typography, Grid, Card, CardContent, Button, Box, Chip, Stack,
-  Avatar, TextField, InputAdornment, Tabs, Tab, Divider, ToggleButtonGroup,
+  Avatar, TextField, InputAdornment, Tabs, Tab, ToggleButtonGroup,
   ToggleButton, Paper, Alert, Tooltip,
 } from '@mui/material';
 import {
@@ -14,6 +14,7 @@ import {
 
 export default function Forum() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
 
   const [categories, setCategories] = useState([]);
@@ -22,22 +23,28 @@ export default function Forum() {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Filters
   const [selectedCat, setSelectedCat] = useState(null);
   const [selectedUni, setSelectedUni] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('latest');
 
-  // User's verified university
   const userUniversity = user?.student_profile?.university || user?.tutor_profile?.university || '';
   const isUniVerified = user?.student_profile?.university_verified || user?.tutor_profile?.university_verified || false;
 
-  useEffect(() => {
-    api.get('/forum/universities/').then(r => setUniversities(r.data.universities || [])).catch(() => {});
-    api.get('/forum/stats/').then(r => setStats(r.data)).catch(() => {});
-    fetchCategories();
-    fetchPosts();
-  }, []);
+  const fetchPosts = (overrides = {}) => {
+    setLoading(true);
+    const params = { sort: overrides.sort || sortBy };
+    const cat = overrides.category !== undefined ? overrides.category : selectedCat;
+    if (cat) params.category = cat;
+    const uni = overrides.university !== undefined ? overrides.university : selectedUni;
+    if (uni) params.university = uni;
+    const search = overrides.search !== undefined ? overrides.search : searchQuery;
+    if (search) params.search = search;
+    api.get('/forum/posts/', { params })
+      .then(r => setPosts(r.data.results || r.data || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
 
   const fetchCategories = (uni = null) => {
     const params = {};
@@ -45,21 +52,17 @@ export default function Forum() {
     api.get('/forum/categories/', { params }).then(r => setCategories(r.data.results || r.data || []));
   };
 
-  const fetchPosts = (overrides = {}) => {
-    setLoading(true);
-    const params = { sort: overrides.sort || sortBy };
-    if (overrides.category || selectedCat) params.category = overrides.category || selectedCat;
-
-    const uni = overrides.university !== undefined ? overrides.university : selectedUni;
-    if (uni) params.university = uni;
-
-    if (overrides.search || searchQuery) params.search = overrides.search || searchQuery;
-
-    api.get('/forum/posts/', { params })
-      .then(r => setPosts(r.data.results || r.data || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+  const fetchStats = () => {
+    api.get('/forum/stats/').then(r => setStats(r.data)).catch(() => {});
   };
+
+  // Refresh EVERY time the page becomes active (navigated to)
+  useEffect(() => {
+    api.get('/forum/universities/').then(r => setUniversities(r.data.universities || [])).catch(() => {});
+    fetchStats();
+    fetchCategories();
+    fetchPosts();
+  }, [location.key]);
 
   const handleUniversityChange = (uni) => {
     setSelectedUni(uni);
@@ -79,9 +82,7 @@ export default function Forum() {
     fetchPosts({ sort: newSort });
   };
 
-  const handleSearch = () => {
-    fetchPosts({ search: searchQuery });
-  };
+  const handleSearch = () => fetchPosts({ search: searchQuery });
 
   const timeAgo = (dateStr) => {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -96,22 +97,21 @@ export default function Forum() {
   };
 
   const uniShortName = (uni) => {
+    if (!uni) return '';
     if (uni.includes('South Bank')) return 'LSBU';
     if (uni.includes('Kings')) return 'KCL';
-    if (uni.includes('University College London')) return 'UCL';
+    if (uni.includes('College London')) return 'UCL';
     if (uni.includes('Imperial')) return 'Imperial';
     if (uni.includes('Queen')) return 'QMUL';
     return uni.substring(0, 15);
   };
 
-  // Separate categories
   const globalCategories = categories.filter(c => !c.university);
   const uniCategories = categories.filter(c => c.university);
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '80vh' }}>
       <Container maxWidth="lg" sx={{ py: 4 }}>
-        {/* Header */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
           <Box>
             <Typography variant="h2" sx={{ mb: 0.5 }}>Community Forum</Typography>
@@ -129,9 +129,7 @@ export default function Forum() {
         </Box>
 
         <Grid container spacing={3}>
-          {/* Main content */}
           <Grid item xs={12} md={8}>
-            {/* University Tabs — only show user's own university if verified */}
             <Paper sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
               <Tabs
                 value={selectedUni}
@@ -142,7 +140,6 @@ export default function Forum() {
               >
                 <Tab icon={<Public sx={{ fontSize: 18 }} />} iconPosition="start" label="All Posts" value="all" />
                 <Tab icon={<ForumIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Global" value="global" />
-                {/* Only show user's own university tab if they have one and are verified */}
                 {userUniversity && isUniVerified && (
                   <Tab
                     icon={<School sx={{ fontSize: 18 }} />} iconPosition="start"
@@ -153,21 +150,18 @@ export default function Forum() {
               </Tabs>
             </Paper>
 
-            {/* Notice for university forums */}
             {selectedUni && selectedUni !== 'all' && selectedUni !== 'global' && (
               <Alert severity="success" icon={<School />} sx={{ mb: 2 }}>
-                You are viewing your university's private forum. Only verified {uniShortName(selectedUni)} students can see and post here.
+                You are viewing your university's private forum. Only verified {uniShortName(selectedUni)} members can see and post here.
               </Alert>
             )}
 
-            {/* Prompt to verify university if they have one but it's not verified */}
             {user && userUniversity && !isUniVerified && selectedUni === 'all' && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Verify your university email to access {uniShortName(userUniversity)}'s private forum.
               </Alert>
             )}
 
-            {/* Search + Sort bar */}
             <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
               <TextField
                 size="small" placeholder="Search posts..."
@@ -185,7 +179,6 @@ export default function Forum() {
               </ToggleButtonGroup>
             </Box>
 
-            {/* Category chips — show global or uni categories based on tab */}
             <Stack direction="row" spacing={0.5} sx={{ mb: 2.5, flexWrap: 'wrap', gap: 0.5 }}>
               <Chip
                 label="All Topics" onClick={() => handleCategorySelect(null)}
@@ -202,7 +195,6 @@ export default function Forum() {
               ))}
             </Stack>
 
-            {/* Posts list */}
             <Stack spacing={1.5}>
               {posts.map(p => (
                 <Card
@@ -212,15 +204,11 @@ export default function Forum() {
                 >
                   <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
                     <Box sx={{ display: 'flex', gap: 1.5 }}>
-                      {/* Vote column */}
                       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 44, pt: 0.5 }}>
                         <ThumbUp sx={{ fontSize: 18, color: 'text.secondary' }} />
                         <Typography variant="body2" fontWeight={600} color="primary.main">{p.upvotes}</Typography>
                       </Box>
-
-                      {/* Content */}
                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                        {/* Meta badges */}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
                           {p.is_pinned && (
                             <Chip icon={<PushPin sx={{ fontSize: 12 }} />} label="Pinned" size="small"
@@ -234,15 +222,11 @@ export default function Forum() {
                               size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
                           )}
                         </Box>
-
                         <Typography variant="h5" sx={{ mb: 0.5, lineHeight: 1.3 }}>{p.title}</Typography>
-
                         <Typography variant="body2" color="text.secondary"
                           sx={{ mb: 1, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                           {p.content}
                         </Typography>
-
-                        {/* Tags */}
                         {p.tags && p.tags.length > 0 && (
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.3, mb: 1 }}>
                             {p.tags.slice(0, 4).map(tag => (
@@ -251,11 +235,9 @@ export default function Forum() {
                             ))}
                           </Box>
                         )}
-
-                        {/* Meta row */}
                         <Stack direction="row" spacing={1.5} alignItems="center">
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Avatar sx={{ width: 20, height: 20, fontSize: 10, bgcolor: p.is_anonymous ? 'grey.400' : 'primary.main' }}>
+                            <Avatar src={p.author_avatar || undefined} sx={{ width: 20, height: 20, fontSize: 10, bgcolor: p.is_anonymous ? 'grey.400' : 'primary.main' }}>
                               {p.is_anonymous ? '?' : p.author_name?.[0]?.toUpperCase()}
                             </Avatar>
                             <Typography variant="caption" color="text.secondary">{p.author_name}</Typography>
@@ -273,7 +255,6 @@ export default function Forum() {
               ))}
             </Stack>
 
-            {/* Empty state */}
             {posts.length === 0 && !loading && (
               <Paper sx={{ textAlign: 'center', py: 6, mt: 2 }}>
                 <ForumIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
@@ -286,9 +267,7 @@ export default function Forum() {
             )}
           </Grid>
 
-          {/* Sidebar */}
           <Grid item xs={12} md={4}>
-            {/* Forum Stats */}
             <Card sx={{ mb: 2 }}>
               <CardContent>
                 <Typography variant="h5" sx={{ mb: 1.5 }}>Forum Stats</Typography>
@@ -309,7 +288,6 @@ export default function Forum() {
               </CardContent>
             </Card>
 
-            {/* My University — only if verified */}
             {user && userUniversity && isUniVerified && (
               <Card sx={{ mb: 2, border: '1px solid', borderColor: 'primary.main' }}>
                 <CardContent>
@@ -325,13 +303,12 @@ export default function Forum() {
                     icon={<School sx={{ fontSize: 14 }} />}
                   />
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                    Access your university's private forums and connect with coursemates.
+                    Access your university's private forums.
                   </Typography>
                 </CardContent>
               </Card>
             )}
 
-            {/* Not logged in or no university */}
             {(!user || !userUniversity) && (
               <Card sx={{ mb: 2 }}>
                 <CardContent>
@@ -344,31 +321,11 @@ export default function Forum() {
                       ? 'Log in and verify your university email to access private university forums.'
                       : 'Verify your university email in Settings to access private forums.'}
                   </Typography>
-                  {!user && (
-                    <Button variant="outlined" size="small" onClick={() => navigate('/login')}>Log In</Button>
-                  )}
+                  {!user && <Button variant="outlined" size="small" onClick={() => navigate('/login')}>Log In</Button>}
                 </CardContent>
               </Card>
             )}
 
-            {/* Popular Tags */}
-            <Card sx={{ mb: 2 }}>
-              <CardContent>
-                <Typography variant="h5" sx={{ mb: 1.5 }}>Popular Tags</Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {['study-tips', 'cs', 'career', 'deadlines', 'mental-health', 'maths', 'coding', 'internship',
-                    'dissertation', 'referencing', 'react', 'productivity'].map(tag => (
-                    <Chip
-                      key={tag} label={`#${tag}`} size="small" variant="outlined"
-                      sx={{ cursor: 'pointer', '&:hover': { bgcolor: '#F0FDF4' } }}
-                      onClick={() => { setSearchQuery(tag); fetchPosts({ search: tag }); }}
-                    />
-                  ))}
-                </Box>
-              </CardContent>
-            </Card>
-
-            {/* Guidelines */}
             <Card>
               <CardContent>
                 <Typography variant="h5" sx={{ mb: 1 }}>Forum Guidelines</Typography>

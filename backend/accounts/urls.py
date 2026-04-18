@@ -3,6 +3,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from . import views
 from . import settings_views
 from . import views_notifications
+from . import public_profile_view
 
 urlpatterns = [
     # Multi-step registration
@@ -23,6 +24,8 @@ urlpatterns = [
     # Tutors (public)
     path('tutors/', views.TutorSearchView.as_view(), name='tutor-search'),
     path('tutors/<uuid:user_id>/', views.TutorDetailView.as_view(), name='tutor-detail'),
+    # Public user profile (any role)
+    path('users/<uuid:user_id>/', public_profile_view.PublicProfileView.as_view(), name='user-public-profile'),
     # Notifications
     path('notifications/', views.NotificationListView.as_view(), name='notifications'),
     path('notifications/<uuid:pk>/read/', views.NotificationMarkReadView.as_view(), name='notification-read'),
