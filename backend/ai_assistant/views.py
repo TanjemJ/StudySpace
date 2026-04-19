@@ -76,9 +76,9 @@ class SendMessageView(views.APIView):
 
     def _get_ai_response(self, messages):
         api_key = settings.GEMINI_API_KEY
+
         if not api_key:
             # Mock response for development
-            last_msg = messages[-1]["content"] if messages else ""
             return (
                 "That is a great question! Let me help you think through this.\n\n"
                 "Before I guide you, could you tell me:\n"
@@ -91,14 +91,32 @@ class SendMessageView(views.APIView):
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
-            history = [{"role": "user", "parts": [SYSTEM_PROMPT]}]
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            ]
+
+
+            model = genai.GenerativeModel(
+                settings.GEMINI_MODEL,
+                system_instruction=SYSTEM_PROMPT,
+                safety_settings=safety_settings,
+            )
+
+            history = []
             for msg in messages:
                 role = "user" if msg["role"] == "user" else "model"
                 history.append({"role": role, "parts": [msg["content"]]})
 
             response = model.generate_content(history)
-            return response.text
-        except Exception as e:
-            return f"I am having trouble connecting right now. Please try again in a moment. (Error: {str(e)})"
+
+            try:
+                return response.text
+            except ValueError:
+                return "I can't respond to that. Please rephrase it as a study-related question."
+
+        except Exception:
+            return "I am having trouble connecting right now. Please try again in a moment."

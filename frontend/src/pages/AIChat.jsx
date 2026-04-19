@@ -7,6 +7,7 @@ import {
   List, ListItemButton, ListItemText, IconButton, Divider, Backdrop,
 } from '@mui/material';
 import { Send, SmartToy, Person, Add, Lock } from '@mui/icons-material';
+import ReactMarkdown from 'react-markdown';
 
 export default function AIChat() {
   const { user } = useAuth();
@@ -16,7 +17,10 @@ export default function AIChat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isAnimatingResponse, setIsAnimatingResponse] = useState(false);
   const endRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const animationVersionRef = useRef(0);
 
   useEffect(() => {
     if (user) {
@@ -28,33 +32,138 @@ export default function AIChat() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+  return () => cancelTypingAnimation();
+}, []);
+
+  const cancelTypingAnimation = () => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    animationVersionRef.current += 1;
+    setIsAnimatingResponse(false);
+  };
+
+  const animateAssistantMessage = (baseMessages, assistantMessage) => {
+    cancelTypingAnimation();
+    const animationVersion = animationVersionRef.current;
+    const content = assistantMessage.content || '';
+    const chunkSize =
+      content.length > 1200 ? 12 :
+      content.length > 700 ? 9 :
+      content.length > 300 ? 6 : 3;
+    const stepDelay = 32;
+
+    setIsAnimatingResponse(true);
+
+    return new Promise((resolve) => {
+      if (!content) {
+        setMessages([...baseMessages, assistantMessage]);
+        setIsAnimatingResponse(false);
+        resolve();
+        return;
+      }
+
+      const step = (index) => {
+        if (animationVersion !== animationVersionRef.current) {
+          resolve();
+          return;
+        }
+
+        const nextIndex = Math.min(content.length, index + chunkSize);
+
+        setMessages([
+          ...baseMessages,
+          {
+            ...assistantMessage,
+            content: content.slice(0, nextIndex),
+            isTyping: nextIndex < content.length,
+          },
+        ]);
+
+        if (nextIndex >= content.length) {
+          typingTimeoutRef.current = null;
+          setMessages([...baseMessages, assistantMessage]);
+          setIsAnimatingResponse(false);
+          resolve();
+          return;
+        }
+
+        typingTimeoutRef.current = setTimeout(() => step(nextIndex), stepDelay);
+      };
+
+      step(0);
+    });
+  };
+
   const selectConv = (conv) => {
+    cancelTypingAnimation();
     setActiveConv(conv);
     setMessages(conv.messages || []);
   };
 
   const newChat = () => {
+    cancelTypingAnimation();
     setActiveConv(null);
     setMessages([]);
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || loading) return;
-    const userMsg = { role: 'user', content: input, timestamp: new Date().toISOString() };
+    if (!input.trim() || loading || isAnimatingResponse) return;
+
+    const userMsg = {
+      role: 'user',
+      content: input,
+      timestamp: new Date().toISOString(),
+    };
+
+    cancelTypingAnimation();
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
+
     try {
-      const res = await api.post('/ai/send/', { message: userMsg.content, conversation_id: activeConv?.id || undefined });
-      setActiveConv(res.data.conversation);
-      setMessages(res.data.conversation.messages);
-      api.get('/ai/conversations/').then(r => setConversations(r.data.results || r.data || []));
+      const res = await api.post('/ai/send/', {
+        message: userMsg.content,
+        conversation_id: activeConv?.id || undefined,
+      });
+
+      const conversation = res.data.conversation;
+      const fullMessages = conversation.messages || [];
+      const lastMessage = fullMessages[fullMessages.length - 1];
+      const baseMessages =
+        lastMessage?.role === 'assistant'
+          ? fullMessages.slice(0, -1)
+          : fullMessages;
+
+      setActiveConv(conversation);
+
+      if (lastMessage?.role === 'assistant') {
+        setMessages(baseMessages);
+      } else {
+        setMessages(fullMessages);
+      }
+
+      api.get('/ai/conversations/')
+        .then(r => setConversations(r.data.results || r.data || []));
+
+      setLoading(false);
+
+      if (lastMessage?.role === 'assistant') {
+        await animateAssistantMessage(baseMessages, lastMessage);
+      }
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);
+      cancelTypingAnimation();
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
+      ]);
     } finally {
       setLoading(false);
     }
   };
+
 
   return (
     <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)', position: 'relative' }}>
@@ -133,8 +242,51 @@ export default function AIChat() {
           {messages.map((m, i) => (
             <Box key={i} sx={{ display: 'flex', gap: 1.5, mb: 2, justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
               {m.role !== 'user' && <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}><SmartToy sx={{ fontSize: 18 }} /></Avatar>}
-              <Paper sx={{ p: 2, maxWidth: '70%', bgcolor: m.role === 'user' ? 'primary.main' : 'grey.100', color: m.role === 'user' ? 'white' : 'text.primary', borderRadius: 2 }}>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{m.content}</Typography>
+              <Paper
+                sx={{
+                  p: 2,
+                  maxWidth: '70%',
+                  bgcolor: m.role === 'user' ? 'primary.main' : 'grey.100',
+                  color: m.role === 'user' ? 'white' : 'text.primary',
+                  borderRadius: 2,
+                }}
+              >
+                {m.role === 'assistant' && !m.isTyping ? (
+                  <Box
+                    sx={{
+                      fontSize: '0.875rem',
+                      lineHeight: 1.6,
+                      '& p': { m: 0, mb: 1.5 },
+                      '& p:last-of-type': { mb: 0 },
+                      '& ul, & ol': { pl: 3, my: 1.25 },
+                      '& li': { mb: 0.5 },
+                      '& strong': { fontWeight: 700 },
+                    }}
+                  >
+                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {m.content}
+                    {m.isTyping && (
+                      <Box
+                        component="span"
+                        sx={{
+                          display: 'inline-block',
+                          width: '0.6ch',
+                          ml: 0.2,
+                          animation: 'ai-cursor-blink 1s step-end infinite',
+                          '@keyframes ai-cursor-blink': {
+                            '0%, 100%': { opacity: 1 },
+                            '50%': { opacity: 0 },
+                          },
+                        }}
+                      >
+                        |
+                      </Box>
+                    )}
+                  </Typography>
+                )}
               </Paper>
               {m.role === 'user' && <Avatar sx={{ bgcolor: 'info.main', width: 32, height: 32 }}><Person sx={{ fontSize: 18 }} /></Avatar>}
             </Box>
@@ -155,9 +307,9 @@ export default function AIChat() {
               fullWidth placeholder={user ? 'Ask a question...' : 'Log in to chat...'} value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())}
-              size="small" multiline maxRows={3} disabled={!user}
+              size="small" multiline maxRows={3} disabled={!user || loading || isAnimatingResponse}
             />
-            <IconButton color="primary" onClick={sendMessage} disabled={!input.trim() || loading || !user}><Send /></IconButton>
+            <IconButton color="primary" onClick={sendMessage} disabled={!input.trim() || loading || isAnimatingResponse || !user}><Send /></IconButton>
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
             AI responses are for guidance only. Always verify with your course materials.

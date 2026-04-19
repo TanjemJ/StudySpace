@@ -1,8 +1,11 @@
 import os
 from pathlib import Path
 from datetime import timedelta
+from dotenv import load_dotenv
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
@@ -128,3 +131,4 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # Gemini API Key (set as environment variable in production)
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
