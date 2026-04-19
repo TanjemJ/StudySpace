@@ -5,34 +5,46 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Container, Typography, Card, CardContent, Box, Chip, Stack, Avatar, Button,
   Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions, Rating,
-  TextField, Alert, Snackbar,
+  TextField, Alert, Snackbar, Divider, IconButton, Tooltip,
 } from '@mui/material';
 import {
-  RateReview, CheckCircle, EditNote, Cancel, HourglassEmpty, SwapHoriz,
+  RateReview, CheckCircle, Cancel as CancelIcon, HourglassEmpty, SwapHoriz,
+  ExpandMore, ExpandLess, VideoCall, Chat as ChatIcon, Person as PersonIcon,
 } from '@mui/icons-material';
 
+import ChangeRequestCard from '../components/booking/ChangeRequestCard';
+import ChangeRequestDialog from '../components/booking/ChangeRequestDialog';
+import BookingDocumentsList from '../components/booking/BookingDocumentsList';
+import CancelBookingDialog from '../components/booking/CancelBookingDialog';
+
 /**
- * Bookings page.
+ * Bookings page 
  *
- * Update 6b: handles the two-way "request change" flow. When the tutor has
- * requested a change, the student sees a yellow banner on their booking card
- * with Accept / Decline buttons.
+ * Everything happens here now for students + tutors (same page, different
+ * role-based UI):
+ *   - Documents widget per booking
+ *   - Accept / decline change requests
+ *   - Propose new changes (even on confirmed bookings)
+ *   - Cancel with tiered refund disclosure
+ *   - Review completed bookings
  */
+
 export default function Bookings() {
   const { user } = useAuth();
   const location = useLocation();
   const [bookings, setBookings] = useState([]);
   const [tab, setTab] = useState(0);
-  const [reviewedIds, setReviewedIds] = useState(new Set());
+  const [expanded, setExpanded] = useState({});  // { bookingId: true }
 
-  // Review dialog state
+  // Dialog state
+  const [changeReqOpen, setChangeReqOpen] = useState(false);
+  const [changeReqTarget, setChangeReqTarget] = useState(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewTarget, setReviewTarget] = useState(null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
-
-  // Change response dialog state (student accepts/declines tutor's change request)
-  const [changeDialog, setChangeDialog] = useState(null); // { booking, action }
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -42,35 +54,24 @@ export default function Bookings() {
 
   const fetchBookings = useCallback(() => {
     api.get('/tutoring/bookings/')
-      .then(r => {
-        const list = r.data.results || r.data || [];
-        setBookings(list);
-        const reviewed = new Set(list.filter(b => b.has_review).map(b => b.id));
-        setReviewedIds(reviewed);
-      })
+      .then(r => setBookings(r.data.results || r.data || []))
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    fetchBookings();
-  }, [location.key, fetchBookings]);
+  useEffect(() => { fetchBookings(); }, [location.key, fetchBookings]);
 
-  // Tab 0 = Upcoming. For students, this also includes pending + change_requested
-  //                  so they can see everything that's not resolved.
-  //                  For tutors, pending is shown on their dashboard instead.
-  // Tab 1 = Past (completed). Tab 2 = Cancelled.
   const filtered = bookings.filter(b => {
-    if (tab === 0) {
-      if (isTutor) {
-        return ['confirmed', 'pending', 'change_requested'].includes(b.status);
-      }
-      return ['confirmed', 'pending', 'change_requested'].includes(b.status);
-    }
+    if (tab === 0) return ['confirmed', 'pending', 'change_requested'].includes(b.status);
     if (tab === 1) return b.status === 'completed';
     if (tab === 2) return b.status === 'cancelled';
     return false;
   });
 
+  const toggleExpand = (id) => {
+    setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // --- review ---
   const openReview = (booking) => {
     setReviewTarget(booking);
     setRating(5);
@@ -85,13 +86,11 @@ export default function Bookings() {
     setError('');
     try {
       await api.post('/tutoring/reviews/create/', {
-        booking_id: reviewTarget.id,
-        rating,
-        comment: comment.trim(),
+        booking_id: reviewTarget.id, rating, comment: comment.trim(),
       });
-      setReviewedIds(prev => new Set([...prev, reviewTarget.id]));
       setReviewOpen(false);
-      setSnackbar('Review submitted — thanks for your feedback!');
+      setSnackbar('Review submitted.');
+      fetchBookings();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to submit review.');
     } finally {
@@ -99,45 +98,47 @@ export default function Bookings() {
     }
   };
 
-  // --- NEW: change request handlers ---
-
-  const openChangeResponse = (booking, action) => {
-    setChangeDialog({ booking, action });
-    setError('');
+  // --- change request / cancel helpers ---
+  const openChangeRequest = (booking) => {
+    setChangeReqTarget(booking);
+    setChangeReqOpen(true);
   };
 
-  const confirmChangeResponse = async () => {
-    if (!changeDialog) return;
-    const { booking, action } = changeDialog;
-    setSubmitting(true);
-    setError('');
-    try {
-      await api.post(`/tutoring/bookings/${booking.id}/${action}/`);
-      setSnackbar(
-        action === 'accept_change'
-          ? 'Change accepted — your booking is confirmed.'
-          : 'Booking cancelled.'
-      );
-      setChangeDialog(null);
-      fetchBookings();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Action failed.');
-    } finally {
-      setSubmitting(false);
-    }
+  const openCancel = (booking) => {
+    setCancelTarget(booking);
+    setCancelOpen(true);
   };
 
+  // --- rendering helpers ---
   const statusColor = (s) => {
     if (s === 'confirmed') return 'success';
     if (s === 'pending') return 'warning';
     if (s === 'change_requested') return 'warning';
     if (s === 'completed') return 'info';
+    if (s === 'cancelled') return 'default';
     return 'default';
   };
 
   const statusLabel = (s) => {
     if (s === 'change_requested') return 'Change requested';
     return s;
+  };
+
+  const sessionIcon = (type) => {
+    if (type === 'video') return <VideoCall sx={{ fontSize: 16 }} />;
+    if (type === 'in_person') return <PersonIcon sx={{ fontSize: 16 }} />;
+    return <ChatIcon sx={{ fontSize: 16 }} />;
+  };
+
+  const refundTierChip = (booking) => {
+    if (!booking.refund_tier) return null;
+    const { tier, label, percent } = booking.refund_tier;
+    const color = percent === 100 ? 'success' : percent === 50 ? 'warning' : 'default';
+    return (
+      <Tooltip title={`If you cancel now: ${label}`}>
+        <Chip label={`Refund: ${percent}%`} size="small" variant="outlined" color={color} />
+      </Tooltip>
+    );
   };
 
   return (
@@ -154,26 +155,35 @@ export default function Bookings() {
         {filtered.map(b => {
           const otherName = isTutor ? b.student_name : b.tutor_name;
           const otherAvatar = isTutor ? b.student_avatar : b.tutor_avatar;
-          const hasReviewed = reviewedIds.has(b.id);
-          const canReview = !isTutor && tab === 1 && b.status === 'completed' && !hasReviewed;
-          const awaitingStudent = !isTutor && b.status === 'change_requested';
-          const awaitingTutorStudentSide = !isTutor && b.status === 'pending';
-          const awaitingStudentTutorSide = isTutor && b.status === 'change_requested';
+          const canReview = !isTutor && tab === 1 && b.status === 'completed' && !b.has_review;
+          const isActive = ['confirmed', 'pending', 'change_requested'].includes(b.status);
+          const canEditDocs = isActive;
+          const pendingChange = b.pending_change;
+          const isExpanded = !!expanded[b.id];
+
+          // Who can request changes / cancel?
+          // - Pending: tutor can accept/decline/request-change; student can cancel (full refund since tutor hasn't accepted)
+          // - Confirmed: both can request-change or cancel
+          // - Change_requested: both see the diff card, the non-requester acts
+          const canRequestChange = ['pending', 'confirmed'].includes(b.status) && !pendingChange;
+          const canCancel = isActive;
 
           return (
             <Card key={b.id} sx={{
-              borderLeft: awaitingStudent || awaitingStudentTutorSide ? '4px solid' : undefined,
-              borderColor: awaitingStudent || awaitingStudentTutorSide ? 'warning.main' : undefined,
+              borderLeft: pendingChange ? '4px solid' : undefined,
+              borderColor: pendingChange ? 'warning.main' : undefined,
             }}>
               <CardContent>
+                {/* Top row */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                   <Avatar src={otherAvatar || undefined} sx={{ bgcolor: 'primary.main' }}>
                     {otherName?.[0]}
                   </Avatar>
                   <Box sx={{ flex: 1, minWidth: 180 }}>
                     <Typography variant="h5">{otherName}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {b.subject} — {b.slot_date} at {b.slot_start}
+                    <Typography variant="body2" color="text.secondary"
+                                sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      {sessionIcon(b.session_type)} {b.subject} — {b.slot_date} at {b.slot_start?.slice(0, 5)}
                     </Typography>
                   </Box>
                   <Chip
@@ -184,75 +194,110 @@ export default function Bookings() {
                   />
                   <Typography variant="h5" color="primary">£{b.price}</Typography>
                   {canReview && (
-                    <Button
-                      variant="contained" size="small" startIcon={<RateReview />}
-                      onClick={() => openReview(b)}
-                    >
+                    <Button variant="contained" size="small" startIcon={<RateReview />}
+                            onClick={() => openReview(b)}>
                       Leave Review
                     </Button>
                   )}
-                  {hasReviewed && tab === 1 && (
+                  {b.has_review && tab === 1 && (
                     <Chip icon={<CheckCircle />} label="Reviewed"
                           size="small" variant="outlined" color="success" />
                   )}
                 </Box>
 
-                {/* Student's note (visible to tutor) */}
-                {b.student_note && isTutor && (
-                  <Typography variant="caption" color="text.secondary"
-                              sx={{ display: 'block', mt: 1.5 }}>
-                    Student's note: "{b.student_note}"
-                  </Typography>
+                {/* Pending change card (shared by both sides — component handles role logic) */}
+                {pendingChange && (
+                  <ChangeRequestCard
+                    changeRequest={pendingChange}
+                    booking={b}
+                    currentUserId={user?.id}
+                    onResolved={() => {
+                      fetchBookings();
+                      setSnackbar('Change request updated.');
+                    }}
+                  />
+                )}
+
+                {/* Student note (visible to tutor) */}
+                {b.student_note && isTutor && !pendingChange && (
+                  <Alert severity="info" sx={{ mt: 1.5 }}>
+                    <strong>Student's note:</strong> "{b.student_note}"
+                  </Alert>
                 )}
 
                 {/* Pending (student side) - waiting for tutor */}
-                {awaitingTutorStudentSide && (
-                  <Alert severity="info" icon={<HourglassEmpty />} sx={{ mt: 2 }}>
-                    Waiting for the tutor to accept or decline this booking.
+                {!isTutor && b.status === 'pending' && !pendingChange && (
+                  <Alert severity="info" icon={<HourglassEmpty />} sx={{ mt: 1.5 }}>
+                    Waiting for the tutor to accept this booking.
                   </Alert>
                 )}
 
-                {/* Change requested — student side */}
-                {awaitingStudent && (
-                  <Box sx={{ mt: 2 }}>
-                    <Alert severity="warning" icon={<SwapHoriz />} sx={{ mb: 1.5 }}>
-                      <strong>{b.tutor_name} has suggested a change:</strong>
-                      <Typography sx={{ mt: 0.5, fontStyle: 'italic' }}>
-                        "{b.tutor_note}"
-                      </Typography>
-                    </Alert>
-                    <Stack direction="row" spacing={1}>
+                {/* Cancelled with tutor note */}
+                {b.tutor_note && !isTutor && b.status === 'cancelled' && (
+                  <Alert severity="warning" sx={{ mt: 1.5 }}>
+                    <strong>Tutor said:</strong> "{b.tutor_note}"
+                  </Alert>
+                )}
+                {b.status === 'cancelled' && b.refund_percent !== undefined && (
+                  <Alert severity={b.refund_percent > 0 ? 'success' : 'info'} sx={{ mt: 1.5 }}>
+                    Refund: {b.refund_percent}%
+                    {b.cancelled_at && ` · Cancelled ${new Date(b.cancelled_at).toLocaleDateString('en-GB')}`}
+                  </Alert>
+                )}
+
+                {/* Actions row (active bookings only) */}
+                {isActive && (
+                  <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    {canRequestChange && (
                       <Button
-                        variant="contained" color="success" size="small"
-                        startIcon={<CheckCircle />}
-                        onClick={() => openChangeResponse(b, 'accept_change')}
+                        size="small" variant="outlined" startIcon={<SwapHoriz />}
+                        onClick={() => openChangeRequest(b)}
                       >
-                        Accept Change
+                        Request Change
                       </Button>
+                    )}
+                    {canCancel && (
                       <Button
-                        variant="outlined" color="error" size="small"
-                        startIcon={<Cancel />}
-                        onClick={() => openChangeResponse(b, 'decline_change')}
+                        size="small" variant="outlined" color="error"
+                        startIcon={<CancelIcon />}
+                        onClick={() => openCancel(b)}
                       >
-                        Decline & Cancel
+                        Cancel Booking
                       </Button>
-                    </Stack>
+                    )}
+                    {!isTutor && refundTierChip(b)}
+                    <Box sx={{ flex: 1 }} />
+                    <Button
+                      size="small"
+                      endIcon={isExpanded ? <ExpandLess /> : <ExpandMore />}
+                      onClick={() => toggleExpand(b.id)}
+                    >
+                      {isExpanded ? 'Hide details' : `Details${b.documents?.length ? ` (${b.documents.length} file${b.documents.length === 1 ? '' : 's'})` : ''}`}
+                    </Button>
                   </Box>
                 )}
 
-                {/* Change requested — tutor side (awaiting student) */}
-                {awaitingStudentTutorSide && (
-                  <Alert severity="info" icon={<HourglassEmpty />} sx={{ mt: 2 }}>
-                    <strong>Awaiting student response</strong> — you asked: "{b.tutor_note}"
-                  </Alert>
-                )}
-
-                {/* Tutor note on cancelled bookings (for student) */}
-                {b.tutor_note && !isTutor && b.status === 'cancelled' && (
-                  <Typography variant="caption" color="warning.main"
-                              sx={{ display: 'block', mt: 1.5 }}>
-                    Tutor said: "{b.tutor_note}"
-                  </Typography>
+                {/* Expanded details */}
+                {isExpanded && (
+                  <>
+                    <Divider sx={{ mt: 2 }} />
+                    {!isTutor && b.student_note && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Your note:
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
+                          "{b.student_note}"
+                        </Typography>
+                      </Box>
+                    )}
+                    <BookingDocumentsList
+                      booking={b}
+                      currentUserId={user?.id}
+                      canEdit={canEditDocs}
+                      onChanged={fetchBookings}
+                    />
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -268,6 +313,28 @@ export default function Bookings() {
         )}
       </Stack>
 
+      {/* Shared dialogs */}
+      <ChangeRequestDialog
+        open={changeReqOpen}
+        booking={changeReqTarget}
+        onClose={() => setChangeReqOpen(false)}
+        onSubmitted={() => {
+          fetchBookings();
+          setSnackbar('Change request submitted.');
+        }}
+      />
+
+      <CancelBookingDialog
+        open={cancelOpen}
+        booking={cancelTarget}
+        isTutor={isTutor}
+        onClose={() => setCancelOpen(false)}
+        onCancelled={() => {
+          fetchBookings();
+          setSnackbar('Booking cancelled.');
+        }}
+      />
+
       {/* Review dialog */}
       <Dialog open={reviewOpen} onClose={() => !submitting && setReviewOpen(false)}
               maxWidth="sm" fullWidth>
@@ -278,8 +345,7 @@ export default function Bookings() {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               How would you rate the session?
             </Typography>
-            <Rating size="large" value={rating}
-                    onChange={(_, v) => setRating(v || 1)} />
+            <Rating size="large" value={rating} onChange={(_, v) => setRating(v || 1)} />
           </Box>
           <TextField
             fullWidth multiline rows={4}
@@ -290,67 +356,12 @@ export default function Bookings() {
             inputProps={{ maxLength: 1000 }}
             helperText={`${comment.length} / 1000`}
           />
-          <Typography variant="caption" color="text.secondary"
-                      sx={{ display: 'block', mt: 1 }}>
-            Your review will be public on the tutor's profile. Be honest and constructive.
-          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReviewOpen(false)} disabled={submitting}>
-            Cancel
-          </Button>
+          <Button onClick={() => setReviewOpen(false)} disabled={submitting}>Cancel</Button>
           <Button variant="contained" onClick={submitReview}
                   disabled={submitting || !comment.trim()}>
             {submitting ? 'Submitting...' : 'Submit Review'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* NEW: change-response dialog */}
-      <Dialog
-        open={!!changeDialog}
-        onClose={() => !submitting && setChangeDialog(null)}
-        maxWidth="sm" fullWidth
-      >
-        <DialogTitle>
-          {changeDialog?.action === 'accept_change' && 'Accept the suggested change?'}
-          {changeDialog?.action === 'decline_change' && 'Decline and cancel booking?'}
-        </DialogTitle>
-        <DialogContent dividers>
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          {changeDialog && (
-            <>
-              <Typography variant="body2" sx={{ mb: 1.5 }}>
-                <strong>{changeDialog.booking.tutor_name} suggested:</strong>
-              </Typography>
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                "{changeDialog.booking.tutor_note}"
-              </Alert>
-              {changeDialog.action === 'accept_change' ? (
-                <Typography variant="body2">
-                  By accepting, you agree to this change and your booking will be confirmed.
-                  The time slot will remain reserved.
-                </Typography>
-              ) : (
-                <Typography variant="body2">
-                  The booking will be cancelled and the time slot will be freed up for other
-                  students. You can book again later if you find a slot that works.
-                </Typography>
-              )}
-            </>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setChangeDialog(null)} disabled={submitting}>
-            Back
-          </Button>
-          <Button
-            variant="contained"
-            color={changeDialog?.action === 'decline_change' ? 'error' : 'success'}
-            onClick={confirmChangeResponse}
-            disabled={submitting}
-          >
-            {submitting ? 'Working...' : 'Confirm'}
           </Button>
         </DialogActions>
       </Dialog>

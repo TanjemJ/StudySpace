@@ -8,20 +8,17 @@ import {
   Snackbar,
 } from '@mui/material';
 import {
-  CheckCircle, Cancel, EditNote, AccessTime, Payments, Star, VideoCall,
+  CheckCircle, Cancel, SwapHoriz, AccessTime, Payments, Star, VideoCall,
   Chat as ChatIcon, Person as PersonIcon, CalendarMonth, Schedule,
-  HourglassEmpty, SwapHoriz,
+  HourglassEmpty, AttachFile, EditNote,
 } from '@mui/icons-material';
 
-/**
- * Tutor Dashboard (Update 6b).
- *
- * Additions:
- *  - New "Awaiting Student Response" section for bookings where the tutor
- *    requested a change and is now waiting for the student's reply
- *  - Pending requests count no longer includes change_requested (which lives
- *    in its own section)
- */
+import ChangeRequestDialog from '../components/booking/ChangeRequestDialog';
+import ChangeRequestCard from '../components/booking/ChangeRequestCard';
+import BookingDocumentsList from '../components/booking/BookingDocumentsList';
+import CancelBookingDialog from '../components/booking/CancelBookingDialog';
+
+
 export default function TutorDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -29,20 +26,22 @@ export default function TutorDashboard() {
 
   const [bookings, setBookings] = useState([]);
   const [stats, setStats] = useState({
-    pending_requests: 0,
-    upcoming_sessions: 0,
-    earnings_this_month: 0,
-    total_students: 0,
-    average_rating: 0,
-    total_reviews: 0,
-    total_sessions: 0,
+    pending_requests: 0, upcoming_sessions: 0, earnings_this_month: 0,
+    total_students: 0, average_rating: 0, total_reviews: 0, total_sessions: 0,
   });
 
-  const [actionDialog, setActionDialog] = useState(null);
-  const [actionMsg, setActionMsg] = useState('');
+  // Simple decline dialog (separate from change-request dialog)
+  const [declineDialog, setDeclineDialog] = useState(null);
+  const [declineReason, setDeclineReason] = useState('');
+
+  // Dialog targets
+  const [changeReqTarget, setChangeReqTarget] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [docsTarget, setDocsTarget] = useState(null);
+
   const [submitting, setSubmitting] = useState(false);
-  const [snackbar, setSnackbar] = useState('');
   const [error, setError] = useState('');
+  const [snackbar, setSnackbar] = useState('');
 
   const fetchData = useCallback(() => {
     Promise.all([
@@ -53,13 +52,15 @@ export default function TutorDashboard() {
 
   useEffect(() => { fetchData(); }, [location.key, fetchData]);
 
-  const pending = bookings.filter(b => b.status === 'pending');
-  const awaitingStudent = bookings.filter(b => b.status === 'change_requested');
+  const pending = bookings.filter(b => b.status === 'pending' && !b.pending_change);
+  const withPendingChange = bookings.filter(b => b.pending_change);
   const confirmed = bookings.filter(b => b.status === 'confirmed');
   const completed = bookings.filter(b => b.status === 'completed');
   const today = new Date().toISOString().slice(0, 10);
   const todaysSessions = confirmed.filter(b => b.slot_date === today);
+  const upcomingConfirmed = confirmed.filter(b => b.slot_date > today);
 
+  // Weekly earnings
   const weeklyData = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
@@ -74,82 +75,19 @@ export default function TutorDashboard() {
   const maxWeekly = Math.max(...weeklyData.map(d => d.amount), 1);
 
   const statCards = [
-    {
-      label: 'Earnings This Month',
-      value: `£${stats.earnings_this_month.toFixed(0)}`,
+    { label: 'Earnings This Month', value: `£${stats.earnings_this_month.toFixed(0)}`,
       icon: <Payments />, color: 'success.main',
-      subtitle: `${completed.length} sessions completed`,
-    },
-    {
-      label: 'Sessions Completed',
-      value: stats.total_sessions || 0,
-      icon: <CheckCircle />, color: 'primary.main',
-      subtitle: 'All time',
-    },
-    {
-      label: 'Average Rating',
-      value: stats.average_rating > 0 ? stats.average_rating.toFixed(1) : '—',
-      icon: <Star />, color: 'warning.main',
-      subtitle: `From ${stats.total_reviews} reviews`,
-    },
-    {
-      label: 'Pending + Awaiting',
-      value: pending.length + awaitingStudent.length,
+      subtitle: `${completed.length} sessions completed` },
+    { label: 'Sessions Completed', value: stats.total_sessions || 0,
+      icon: <CheckCircle />, color: 'primary.main', subtitle: 'All time' },
+    { label: 'Average Rating', value: stats.average_rating > 0 ? stats.average_rating.toFixed(1) : '—',
+      icon: <Star />, color: 'warning.main', subtitle: `From ${stats.total_reviews} reviews` },
+    { label: 'Pending + Awaiting', value: pending.length + withPendingChange.length,
       icon: <AccessTime />, color: 'info.main',
-      subtitle: awaitingStudent.length > 0
-        ? `${awaitingStudent.length} awaiting student`
-        : (pending.length > 0 ? 'Action needed' : 'Nothing pending'),
-    },
+      subtitle: withPendingChange.length > 0
+        ? `${withPendingChange.length} change request${withPendingChange.length === 1 ? '' : 's'}`
+        : (pending.length > 0 ? 'Action needed' : 'Nothing pending') },
   ];
-
-  const openAction = (booking, action) => {
-    setActionDialog({ booking, action });
-    setActionMsg('');
-    setError('');
-  };
-
-  const closeAction = () => {
-    if (!submitting) {
-      setActionDialog(null);
-      setActionMsg('');
-      setError('');
-    }
-  };
-
-  const confirmAction = async () => {
-    if (!actionDialog) return;
-    const { booking, action } = actionDialog;
-
-    if (action === 'request_change' && !actionMsg.trim()) {
-      setError('Please describe the change you need.');
-      return;
-    }
-
-    setSubmitting(true);
-    setError('');
-    try {
-      const payload = {};
-      if (action === 'decline') payload.reason = actionMsg.trim();
-      if (action === 'request_change') payload.message = actionMsg.trim();
-
-      await api.post(`/tutoring/bookings/${booking.id}/${action}/`, payload);
-
-      const verbs = {
-        accept: 'accepted',
-        decline: 'declined',
-        request_change: 'change requested — waiting on student',
-        complete: 'marked complete',
-        cancel: 'cancelled',
-      };
-      setSnackbar(`Booking ${verbs[action]}.`);
-      setActionDialog(null);
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Action failed.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const quickAccept = async (booking) => {
     try {
@@ -161,11 +99,56 @@ export default function TutorDashboard() {
     }
   };
 
+  const submitDecline = async () => {
+    if (!declineDialog) return;
+    setSubmitting(true);
+    try {
+      await api.post(`/tutoring/bookings/${declineDialog.id}/decline/`,
+                     { reason: declineReason.trim() });
+      setSnackbar('Booking declined.');
+      setDeclineDialog(null);
+      setDeclineReason('');
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Decline failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const markComplete = async (booking) => {
+    try {
+      await api.post(`/tutoring/bookings/${booking.id}/complete/`);
+      setSnackbar('Session marked as complete.');
+      fetchData();
+    } catch (err) {
+      setSnackbar(err.response?.data?.error || 'Failed.');
+    }
+  };
+
   const sessionIcon = (type) => {
     if (type === 'video') return <VideoCall sx={{ fontSize: 16, color: 'info.main' }} />;
     if (type === 'in_person') return <PersonIcon sx={{ fontSize: 16, color: 'warning.main' }} />;
     return <ChatIcon sx={{ fontSize: 16, color: 'primary.main' }} />;
   };
+
+  // Renders the action row on a confirmed upcoming booking
+  const confirmedActions = (b) => (
+    <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
+      <Button size="small" variant="outlined" startIcon={<SwapHoriz />}
+              onClick={() => setChangeReqTarget(b)}>
+        Request Change
+      </Button>
+      <Button size="small" variant="outlined" startIcon={<AttachFile />}
+              onClick={() => setDocsTarget(b)}>
+        {b.documents?.length ? `Files (${b.documents.length})` : 'Attach File'}
+      </Button>
+      <Button size="small" variant="outlined" color="error" startIcon={<Cancel />}
+              onClick={() => setCancelTarget(b)}>
+        Cancel
+      </Button>
+    </Stack>
+  );
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -177,18 +160,15 @@ export default function TutorDashboard() {
             Here's what's happening with your tutoring today.
           </Typography>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<Schedule />}
-          onClick={() => navigate('/tutor-schedule')}
-        >
+        <Button variant="outlined" startIcon={<Schedule />}
+                onClick={() => navigate('/tutor-schedule')}>
           Manage Availability
         </Button>
       </Box>
 
       {user?.tutor_profile?.verification_status === 'approved' && (
         <Alert severity="success" icon={<CheckCircle />} sx={{ mb: 3 }}>
-          Your tutor profile is <strong>approved and live</strong>. Students can find and book you.
+          Your tutor profile is <strong>approved and live</strong>.
         </Alert>
       )}
       {user?.tutor_profile?.verification_status === 'pending' && (
@@ -200,12 +180,6 @@ export default function TutorDashboard() {
         <Alert severity="info" sx={{ mb: 3 }}>
           <strong>More information needed:</strong>{' '}
           {user.tutor_profile.rejection_reason || 'Check your notifications.'}
-        </Alert>
-      )}
-      {user?.tutor_profile?.verification_status === 'rejected' && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          Your application was rejected. Reason:{' '}
-          {user.tutor_profile.rejection_reason || '(see your notifications)'}
         </Alert>
       )}
 
@@ -231,7 +205,7 @@ export default function TutorDashboard() {
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={7}>
-          {/* Today's sessions */}
+          {/* Today's Sessions */}
           <Typography variant="h4" sx={{ mb: 2 }}>Today's Sessions</Typography>
           {todaysSessions.length === 0 ? (
             <Card sx={{ mb: 4 }}>
@@ -243,29 +217,40 @@ export default function TutorDashboard() {
             <Stack spacing={1.5} sx={{ mb: 4 }}>
               {todaysSessions.map(b => (
                 <Card key={b.id}>
-                  <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar src={b.student_avatar || undefined}>
-                      {b.student_first_name?.[0]}
-                    </Avatar>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="h5">
-                        {b.student_first_name} {b.student_last_name}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {sessionIcon(b.session_type)} {b.subject} — {b.slot_start}
-                      </Typography>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar src={b.student_avatar || undefined}>
+                        {b.student_first_name?.[0]}
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="h5">
+                          {b.student_first_name} {b.student_last_name}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {sessionIcon(b.session_type)} {b.subject} — {b.slot_start?.slice(0, 5)}
+                        </Typography>
+                      </Box>
+                      <Button variant="contained" size="small" startIcon={<CheckCircle />}
+                              onClick={() => markComplete(b)}>
+                        Mark Complete
+                      </Button>
                     </Box>
-                    <Button variant="contained" size="small" startIcon={<CheckCircle />}
-                            onClick={() => openAction(b, 'complete')}>
-                      Mark Complete
-                    </Button>
+                    {b.pending_change && (
+                      <ChangeRequestCard
+                        changeRequest={b.pending_change}
+                        booking={b}
+                        currentUserId={user?.id}
+                        onResolved={fetchData}
+                      />
+                    )}
+                    {confirmedActions(b)}
                   </CardContent>
                 </Card>
               ))}
             </Stack>
           )}
 
-          {/* Student requests (pending) */}
+          {/* Pending Requests */}
           <Typography variant="h4" sx={{ mb: 2 }}>
             Student Requests
             {pending.length > 0 && (
@@ -292,7 +277,7 @@ export default function TutorDashboard() {
                           {b.student_first_name} {b.student_last_name}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          {sessionIcon(b.session_type)} {b.subject} — {b.slot_date} at {b.slot_start}
+                          {sessionIcon(b.session_type)} {b.subject} — {b.slot_date} at {b.slot_start?.slice(0, 5)}
                         </Typography>
                       </Box>
                       <Typography variant="h5" color="primary">£{b.price}</Typography>
@@ -302,18 +287,27 @@ export default function TutorDashboard() {
                         <strong>Student's note:</strong> "{b.student_note}"
                       </Alert>
                     )}
+                    {b.documents?.length > 0 && (
+                      <Alert severity="info" icon={<AttachFile />} sx={{ mb: 1.5 }}>
+                        Student attached {b.documents.length} document
+                        {b.documents.length === 1 ? '' : 's'}.{' '}
+                        <Button size="small" onClick={() => setDocsTarget(b)}>
+                          View
+                        </Button>
+                      </Alert>
+                    )}
                     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
                       <Button variant="contained" color="success" size="small"
                               startIcon={<CheckCircle />} onClick={() => quickAccept(b)}>
                         Accept
                       </Button>
-                      <Button variant="outlined" size="small" startIcon={<EditNote />}
-                              onClick={() => openAction(b, 'request_change')}>
+                      <Button variant="outlined" size="small" startIcon={<SwapHoriz />}
+                              onClick={() => setChangeReqTarget(b)}>
                         Request Change
                       </Button>
                       <Button variant="outlined" color="error" size="small"
                               startIcon={<Cancel />}
-                              onClick={() => openAction(b, 'decline')}>
+                              onClick={() => { setDeclineDialog(b); setDeclineReason(''); }}>
                         Decline
                       </Button>
                     </Stack>
@@ -323,19 +317,19 @@ export default function TutorDashboard() {
             </Stack>
           )}
 
-          {/* NEW: Awaiting Student Response */}
-          {awaitingStudent.length > 0 && (
+          {/* Bookings with pending change requests */}
+          {withPendingChange.length > 0 && (
             <>
               <Typography variant="h4" sx={{ mb: 2 }}>
-                Awaiting Student Response
-                <Chip label={awaitingStudent.length} color="info"
+                Change Requests
+                <Chip label={withPendingChange.length} color="info"
                       size="small" sx={{ ml: 1 }} />
               </Typography>
               <Stack spacing={1.5} sx={{ mb: 4 }}>
-                {awaitingStudent.map(b => (
+                {withPendingChange.map(b => (
                   <Card key={b.id} sx={{ borderLeft: '4px solid', borderColor: 'info.main' }}>
                     <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
                         <Avatar src={b.student_avatar || undefined}>
                           {b.student_first_name?.[0]}
                         </Avatar>
@@ -344,30 +338,55 @@ export default function TutorDashboard() {
                             {b.student_first_name} {b.student_last_name}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
-                            {sessionIcon(b.session_type)} {b.subject} — {b.slot_date} at {b.slot_start}
+                            {b.subject} — {b.slot_date} at {b.slot_start?.slice(0, 5)}
                           </Typography>
                         </Box>
-                        <Chip
-                          icon={<HourglassEmpty />}
-                          label="Awaiting response"
-                          color="info" size="small"
-                        />
                       </Box>
-                      <Alert severity="warning" icon={<SwapHoriz />} sx={{ mb: 1 }}>
-                        <strong>You asked:</strong> "{b.tutor_note}"
-                      </Alert>
-                      <Typography variant="caption" color="text.secondary">
-                        The student will see this request on their Bookings page and can accept
-                        or decline. You'll get a notification either way.
-                      </Typography>
-                      <Box sx={{ mt: 1.5 }}>
-                        <Button
-                          variant="outlined" color="error" size="small"
-                          onClick={() => openAction(b, 'cancel')}
-                        >
-                          Cancel this booking
-                        </Button>
+                      <ChangeRequestCard
+                        changeRequest={b.pending_change}
+                        booking={b}
+                        currentUserId={user?.id}
+                        onResolved={fetchData}
+                      />
+                    </CardContent>
+                  </Card>
+                ))}
+              </Stack>
+            </>
+          )}
+
+          {/* Upcoming confirmed */}
+          {upcomingConfirmed.length > 0 && (
+            <>
+              <Typography variant="h4" sx={{ mb: 2 }}>
+                Upcoming Confirmed Sessions
+              </Typography>
+              <Stack spacing={1.5} sx={{ mb: 4 }}>
+                {upcomingConfirmed.map(b => (
+                  <Card key={b.id}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar src={b.student_avatar || undefined}>
+                          {b.student_first_name?.[0]}
+                        </Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="h5">
+                            {b.student_first_name} {b.student_last_name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {sessionIcon(b.session_type)} {b.subject} —{' '}
+                            {b.slot_date} at {b.slot_start?.slice(0, 5)}
+                          </Typography>
+                        </Box>
+                        {b.documents?.length > 0 && (
+                          <Chip
+                            icon={<AttachFile />}
+                            label={b.documents.length}
+                            size="small" variant="outlined"
+                          />
+                        )}
                       </Box>
+                      {confirmedActions(b)}
                     </CardContent>
                   </Card>
                 ))}
@@ -389,8 +408,7 @@ export default function TutorDashboard() {
                         £{d.amount.toFixed(0)}
                       </Typography>
                     </Box>
-                    <Box sx={{ bgcolor: 'action.hover', borderRadius: 1,
-                               height: 6, overflow: 'hidden' }}>
+                    <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, height: 6, overflow: 'hidden' }}>
                       <Box sx={{
                         bgcolor: 'success.main', height: '100%',
                         width: `${(d.amount / maxWeekly) * 100}%`,
@@ -402,105 +420,79 @@ export default function TutorDashboard() {
               </Stack>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardContent>
-              <Typography variant="h5" sx={{ mb: 2 }}>
-                Upcoming ({confirmed.length})
-              </Typography>
-              {confirmed.length === 0 ? (
-                <Typography color="text.secondary" variant="body2">
-                  No upcoming sessions.
-                </Typography>
-              ) : (
-                <Stack spacing={1}>
-                  {confirmed.slice(0, 5).map(b => (
-                    <Box key={b.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <CalendarMonth sx={{ fontSize: 18, color: 'text.secondary' }} />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" noWrap>
-                          {b.student_first_name} • {b.subject}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {b.slot_date} at {b.slot_start}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  ))}
-                </Stack>
-              )}
-            </CardContent>
-          </Card>
         </Grid>
       </Grid>
 
-      {/* Action dialog */}
-      <Dialog open={!!actionDialog} onClose={closeAction} maxWidth="sm" fullWidth>
+      {/* Dialogs */}
+      <ChangeRequestDialog
+        open={!!changeReqTarget}
+        booking={changeReqTarget}
+        onClose={() => setChangeReqTarget(null)}
+        onSubmitted={() => {
+          fetchData();
+          setSnackbar('Change request submitted.');
+        }}
+      />
+
+      <CancelBookingDialog
+        open={!!cancelTarget}
+        booking={cancelTarget}
+        isTutor
+        onClose={() => setCancelTarget(null)}
+        onCancelled={() => {
+          fetchData();
+          setSnackbar('Booking cancelled.');
+        }}
+      />
+
+      {/* Documents dialog */}
+      <Dialog open={!!docsTarget} onClose={() => setDocsTarget(null)}
+              maxWidth="sm" fullWidth>
         <DialogTitle>
-          {actionDialog?.action === 'decline' && 'Decline Booking'}
-          {actionDialog?.action === 'request_change' && 'Request a Change'}
-          {actionDialog?.action === 'complete' && 'Mark Session Complete'}
-          {actionDialog?.action === 'cancel' && 'Cancel Booking'}
+          Booking Documents — {docsTarget?.student_first_name}'s session
         </DialogTitle>
         <DialogContent dividers>
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-          {actionDialog?.action === 'decline' && (
-            <>
-              <Typography variant="body2" sx={{ mb: 2 }}>
-                The booking will be cancelled and the time slot will be freed.
-                Optionally, leave a brief reason.
-              </Typography>
-              <TextField
-                fullWidth multiline rows={3}
-                label="Reason (optional)"
-                placeholder="e.g. I'm no longer available at that time."
-                value={actionMsg}
-                onChange={(e) => setActionMsg(e.target.value)}
-              />
-            </>
-          )}
-
-          {actionDialog?.action === 'request_change' && (
-            <>
-              <Typography variant="body2" sx={{ mb: 2 }}>
-                The booking will be flagged as awaiting the student's response. The student will
-                see your message on their Bookings page and can accept the change (confirming the
-                booking) or decline (cancelling it).
-              </Typography>
-              <TextField
-                fullWidth multiline rows={3}
-                label="What change do you need?"
-                placeholder="e.g. Could we push this to 3pm instead?"
-                value={actionMsg}
-                onChange={(e) => setActionMsg(e.target.value)}
-                autoFocus
-              />
-            </>
-          )}
-
-          {actionDialog?.action === 'complete' && (
-            <Typography variant="body2">
-              Mark this session as complete? This will finalise the booking and prompt the
-              student to leave a review.
-            </Typography>
-          )}
-
-          {actionDialog?.action === 'cancel' && (
-            <Typography variant="body2">
-              Cancel this booking? The student will be notified and the time slot will be freed.
-            </Typography>
+          {docsTarget && (
+            <BookingDocumentsList
+              booking={docsTarget}
+              currentUserId={user?.id}
+              canEdit={['pending', 'confirmed', 'change_requested'].includes(docsTarget.status)}
+              onChanged={() => {
+                fetchData();
+                // Refresh the dialog's local copy
+                api.get(`/tutoring/bookings/${docsTarget.id}/`)
+                  .then(r => setDocsTarget(r.data))
+                  .catch(() => {});
+              }}
+            />
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeAction} disabled={submitting}>Cancel</Button>
-          <Button
-            variant="contained"
-            color={['decline', 'cancel'].includes(actionDialog?.action) ? 'error' : 'primary'}
-            onClick={confirmAction}
-            disabled={submitting}
-          >
-            {submitting ? 'Working...' : 'Confirm'}
+          <Button onClick={() => setDocsTarget(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Decline dialog */}
+      <Dialog open={!!declineDialog} onClose={() => !submitting && setDeclineDialog(null)}
+              maxWidth="sm" fullWidth>
+        <DialogTitle>Decline booking?</DialogTitle>
+        <DialogContent dividers>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            The student will receive a full refund and the time slot will be freed.
+          </Typography>
+          <TextField
+            fullWidth multiline rows={3}
+            label="Reason (optional)"
+            placeholder="e.g. I'm no longer available at that time."
+            value={declineReason}
+            onChange={(e) => setDeclineReason(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeclineDialog(null)} disabled={submitting}>Back</Button>
+          <Button variant="contained" color="error" onClick={submitDecline} disabled={submitting}>
+            {submitting ? 'Declining...' : 'Decline Booking'}
           </Button>
         </DialogActions>
       </Dialog>

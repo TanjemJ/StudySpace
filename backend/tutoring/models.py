@@ -48,6 +48,15 @@ class Booking(models.Model):
     tutor_note = models.TextField(blank=True, max_length=500)
     session_link = models.URLField(blank=True)
     price = models.DecimalField(max_digits=6, decimal_places=2)
+
+    # Cancellation / refund tracking (Update 7)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    refund_percent = models.IntegerField(default=0, help_text="0, 50 or 100")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -58,6 +67,75 @@ class Booking(models.Model):
         return f"{self.student.display_name} → {self.tutor.user.display_name} ({self.status})"
 
 
+class BookingChangeRequest(models.Model):
+    """
+    A structured change request on an existing booking.
+
+    Either party can propose a change to date/time/session_type. The other
+    party sees a diff of current vs proposed and accepts or declines.
+    An accepted change rewrites the booking (and moves the slot if the
+    time changed).
+    """
+
+    class RequestedBy(models.TextChoices):
+        STUDENT = 'student', 'Student'
+        TUTOR = 'tutor', 'Tutor'
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        ACCEPTED = 'accepted', 'Accepted'
+        DECLINED = 'declined', 'Declined'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='change_requests')
+    requested_by = models.CharField(max_length=10, choices=RequestedBy.choices)
+    requested_by_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='+')
+
+    # Proposed new values (nullable — only fields the requester wants to change are set)
+    proposed_date = models.DateField(null=True, blank=True)
+    proposed_start_time = models.TimeField(null=True, blank=True)
+    proposed_end_time = models.TimeField(null=True, blank=True)
+    proposed_session_type = models.CharField(
+        max_length=20, blank=True,
+        choices=Booking.SessionType.choices,
+    )
+
+    message = models.TextField(blank=True, max_length=500)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Change #{self.id.hex[:6]} by {self.requested_by} on {self.booking_id}"
+
+
+class BookingDocument(models.Model):
+    """
+    File attachment on a booking.
+
+    Either student or tutor can upload up to N documents. Both sides see all
+    documents on the booking. Documents can be deleted by their uploader
+    while the booking is not yet completed.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='documents')
+    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='+')
+    file = models.FileField(upload_to='booking_docs/')
+    original_name = models.CharField(max_length=255)
+    description = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.original_name} on booking {self.booking_id}"
+
+
 class PaymentRecord(models.Model):
     """Payment records for bookings (sandbox/test mode)."""
 
@@ -66,6 +144,7 @@ class PaymentRecord(models.Model):
         COMPLETED = 'completed', 'Completed'
         FAILED = 'failed', 'Failed'
         REFUNDED = 'refunded', 'Refunded'
+        PARTIALLY_REFUNDED = 'partially_refunded', 'Partially Refunded'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name='payment')
@@ -74,6 +153,7 @@ class PaymentRecord(models.Model):
     payment_method = models.CharField(max_length=20, default='stripe')
     transaction_id = models.CharField(max_length=200, blank=True)
     status = models.CharField(max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING)
+    refunded_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
