@@ -5,6 +5,7 @@ from django.contrib.auth import authenticate
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
+import uuid
 
 
 from .models import User, StudentProfile, TutorProfile, EmailVerificationCode, Notification
@@ -22,7 +23,7 @@ def get_tokens_for_user(user):
     return {'access': str(refresh.access_token), 'refresh': str(refresh)}
 
 
-def send_verification_email(user, code, subject_line, intro_line):
+def send_verification_email(recipient_email, code, subject_line, intro_line):
     context = {
         'subject_line': subject_line,
         'intro_line': intro_line,
@@ -36,7 +37,7 @@ def send_verification_email(user, code, subject_line, intro_line):
         subject=subject_line,
         body=text_body,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
+        to=[recipient_email],
     )
     
     message.attach_alternative(html_body, 'text/html')
@@ -52,27 +53,38 @@ class RegisterStep1View(views.APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        temp_display_name = f"user_{uuid.uuid4().hex[:8]}"
+        while User.objects.filter(display_name=temp_display_name).exists():
+            temp_display_name = f"user_{uuid.uuid4().hex[:8]}"
+
+
         user = User.objects.create_user(
             email=data['email'],
             username=data['email'],  # use email as username internally
             password=data['password'],
             role=data['role'],
-            display_name=f"user_{User.objects.count() + 1}",  # temporary, updated in step 2
+            display_name=temp_display_name,
             is_active=True,
             is_email_verified=False,
         )
 
         # Generate and "send" verification code
         code = EmailVerificationCode.generate_code()
-        EmailVerificationCode.objects.create(user=user, code=code)
+        EmailVerificationCode.objects.create(
+            user=user,
+            code=code,
+            purpose=EmailVerificationCode.Purpose.ACCOUNT_EMAIL,
+            target_email=user.email,
+        )
 
         try:
             send_verification_email(
-                user=user,
+                recipient_email=user.email,
                 code=code,
-                subject_line='StudySpace — Verify your email',
+                subject_line='StudySpace - Verify your email',
                 intro_line='Use this 6-digit code to verify your email address and continue setting up your StudySpace account.',
             )
+
         except Exception as e:
             import traceback
             print("SENDGRID REGISTER EMAIL ERROR:", repr(e))
@@ -90,7 +102,7 @@ class RegisterStep1View(views.APIView):
             'email': user.email,
             'role': user.role,
             # In dev, include the code so you can test without email
-            'dev_code': code if settings.DEBUG else None,
+            'dev_code': code if settings.DEBUG and not getattr(settings, 'USE_SENDGRID_EMAIL', False) else None,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -108,8 +120,13 @@ class VerifyEmailCodeView(views.APIView):
             return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         verification = EmailVerificationCode.objects.filter(
-            user=user, code=serializer.validated_data['code'], is_used=False
+            user=user,
+            code=serializer.validated_data['code'],
+            purpose=EmailVerificationCode.Purpose.ACCOUNT_EMAIL,
+            target_email=user.email,
+            is_used=False,
         ).order_by('-created_at').first()
+
 
         if not verification:
             return Response({'error': 'Invalid verification code.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -136,15 +153,21 @@ class ResendCodeView(views.APIView):
             return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         code = EmailVerificationCode.generate_code()
-        EmailVerificationCode.objects.create(user=user, code=code)
+        EmailVerificationCode.objects.create(
+            user=user,
+            code=code,
+            purpose=EmailVerificationCode.Purpose.ACCOUNT_EMAIL,
+            target_email=user.email,
+        )
 
         try:
             send_verification_email(
-                user=user,
+                recipient_email=user.email,
                 code=code,
-                subject_line='StudySpace — New verification code',
+                subject_line='StudySpace - New verification code',
                 intro_line='Here is your new 6-digit StudySpace verification code.',
             )
+
         except Exception as e:
             import traceback
             print("SENDGRID RESEND EMAIL ERROR:", repr(e))
@@ -157,7 +180,7 @@ class ResendCodeView(views.APIView):
         
         return Response({
             'message': 'New code sent.',
-            'dev_code': code if settings.DEBUG else None,
+            'dev_code': code if settings.DEBUG and not getattr(settings, 'USE_SENDGRID_EMAIL', False) else None,
         })
 
 

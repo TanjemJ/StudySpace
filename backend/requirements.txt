@@ -7,3 +7,4 @@ django-filter==24.3
 Pillow==11.1.0
 python-dotenv==1.0.1
 google-generativeai==0.8.4
+dnspython==2.7.0

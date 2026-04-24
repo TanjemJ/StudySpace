@@ -86,7 +86,7 @@ TIME_ZONE = 'Europe/London'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -127,17 +127,19 @@ SIMPLE_JWT = {
 }
 
 # Email (console for dev, switch to SMTP for production/dev staging)
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'StudySpace <noreply@studyspace.com>'
+USE_SENDGRID_EMAIL = os.environ.get('USE_SENDGRID_EMAIL', 'False') == 'True'
 
-if not DEBUG:
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'studyspaceadmin@gmail.com')
+
+if USE_SENDGRID_EMAIL:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
     EMAIL_HOST = 'smtp.sendgrid.net'
     EMAIL_PORT = 587
     EMAIL_USE_TLS = True
     EMAIL_HOST_USER = 'apikey'
     EMAIL_HOST_PASSWORD = os.environ.get('SENDGRID_API_KEY')
-    DEFAULT_FROM_EMAIL = f"StudySpace <{os.environ.get('DEFAULT_FROM_EMAIL')}>"
+
 
 # Gemini API Key (set as environment variable in production)
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')

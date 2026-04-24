@@ -1,6 +1,15 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, StudentProfile, TutorProfile, EmailVerificationCode, Notification, VerificationDocument, ContactMessage
+from .models import (
+    User,
+    StudentProfile,
+    TutorProfile,
+    EmailVerificationCode,
+    Notification,
+    VerificationDocument,
+    ContactMessage,
+    UniversityDomain,
+)
 
 
 @admin.register(User)
@@ -48,6 +57,13 @@ class ContactMessageAdmin(admin.ModelAdmin):
     def mark_resolved(self, request, queryset):
         queryset.update(is_resolved=True)
     mark_resolved.short_description = 'Mark as resolved'
+
+@admin.register(UniversityDomain)
+class UniversityDomainAdmin(admin.ModelAdmin):
+    list_display = ('university_name', 'domain', 'is_active', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('university_name', 'domain')
+    ordering = ('university_name', 'domain')
 
 
 admin.site.register(EmailVerificationCode)

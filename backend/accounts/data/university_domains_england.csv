@@ -1,0 +1,11 @@
+domain,university_name,is_active
+lsbu.ac.uk,London South Bank University,True
+kcl.ac.uk,Kings College London,True
+ucl.ac.uk,University College London,True
+imperial.ac.uk,Imperial College London,True
+qmul.ac.uk,Queen Mary University of London,True
+city.ac.uk,City, University of London,True
+westminster.ac.uk,University of Westminster,True
+greenwich.ac.uk,University of Greenwich,True
+brunel.ac.uk,Brunel University London,True
+roehampton.ac.uk,University of Roehampton,True

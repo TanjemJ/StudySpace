@@ -56,9 +56,17 @@ class User(AbstractUser):
 
 
 class EmailVerificationCode(models.Model):
-    """Stores 6-digit codes sent to users during registration."""
+ 
+    """Stores 6-digit codes sent to users during registration and verification flows."""
+
+    class Purpose(models.TextChoices):
+        ACCOUNT_EMAIL = 'account_email', 'Account Email'
+        UNIVERSITY_EMAIL = 'university_email', 'University Email'
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='verification_codes')
     code = models.CharField(max_length=6)
+    purpose = models.CharField(max_length=30, choices=Purpose.choices, default=Purpose.ACCOUNT_EMAIL)
+    target_email = models.EmailField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     is_used = models.BooleanField(default=False)
 
@@ -71,17 +79,49 @@ class EmailVerificationCode(models.Model):
         return timezone.now() > self.created_at + timezone.timedelta(minutes=15)
 
 
+class UniversityDomain(models.Model):
+    """Database-backed mapping of university email domains to institution names."""
+
+    domain = models.CharField(max_length=255, unique=True)
+    university_name = models.CharField(max_length=200)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['university_name', 'domain']
+
+    def __str__(self):
+        return f"{self.university_name} ({self.domain})"
+
+
 class StudentProfile(models.Model):
     """Extended profile for students."""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile')
     university = models.CharField(max_length=200, blank=True)
     university_email = models.EmailField(blank=True)
     university_verified = models.BooleanField(default=False)
+    university_verified_at = models.DateTimeField(null=True, blank=True)
     course = models.CharField(max_length=200, blank=True)
     year_of_study = models.IntegerField(null=True, blank=True)
 
     def __str__(self):
         return f"Student: {self.user.display_name}"
+    
+    @property
+    def university_verification_active(self):
+        return bool(
+            self.university_verified and
+            self.university_verified_at and
+            timezone.now() < self.university_verified_at + timezone.timedelta(days=365)
+        )
+
+    @property
+    def university_email_can_change(self):
+        if not self.university_verified_at:
+            return True
+        return timezone.now() >= self.university_verified_at + timezone.timedelta(days=30)
+
 
 
 class TutorProfile(models.Model):
@@ -103,6 +143,7 @@ class TutorProfile(models.Model):
     company_email_verified = models.BooleanField(default=False)
     university = models.CharField(max_length=200, blank=True, help_text="University the tutor is affiliated with")
     university_verified = models.BooleanField(default=False)
+    university_verified_at = models.DateTimeField(null=True, blank=True)
 
     # Verification
     verification_status = models.CharField(
@@ -121,6 +162,21 @@ class TutorProfile(models.Model):
 
     def __str__(self):
         return f"Tutor: {self.user.display_name} ({self.verification_status})"
+    
+    @property
+    def university_verification_active(self):
+        return bool(
+            self.university_verified and
+            self.university_verified_at and
+            timezone.now() < self.university_verified_at + timezone.timedelta(days=365)
+        )
+
+    @property
+    def university_email_can_change(self):
+        if not self.university_verified_at:
+            return True
+        return timezone.now() >= self.university_verified_at + timezone.timedelta(days=30)
+
 
 
 class VerificationDocument(models.Model):
