@@ -1,0 +1,11 @@
+{{ subject_line }}
+
+{{ intro_line }}
+
+Your 6-digit verification code is:
+
+{{ code }}
+
+If you did not request this, you can safely ignore this email.
+
+StudySpace

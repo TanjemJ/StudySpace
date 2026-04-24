@@ -2,8 +2,10 @@ from rest_framework import generics, status, permissions, views
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
 from django.conf import settings
+
 
 from .models import User, StudentProfile, TutorProfile, EmailVerificationCode, Notification
 from .serializers import (
@@ -18,6 +20,27 @@ from .serializers import (
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
     return {'access': str(refresh.access_token), 'refresh': str(refresh)}
+
+
+def send_verification_email(user, code, subject_line, intro_line):
+    context = {
+        'subject_line': subject_line,
+        'intro_line': intro_line,
+        'code': code,
+    }
+
+    text_body = render_to_string('emails/verification_code.txt', context)
+    html_body = render_to_string('emails/verification_code.html', context)
+
+    message = EmailMultiAlternatives(
+        subject=subject_line,
+        body=text_body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+    
+    message.attach_alternative(html_body, 'text/html')
+    message.send()
 
 
 # --- Step 1: Create user with email + password, send verification code ---
@@ -43,13 +66,23 @@ class RegisterStep1View(views.APIView):
         code = EmailVerificationCode.generate_code()
         EmailVerificationCode.objects.create(user=user, code=code)
 
-        # In dev, prints to console. In prod, sends real email.
-        send_mail(
-            subject='StudySpace — Verify your email',
-            message=f'Your verification code is: {code}',
-            from_email='noreply@studyspace.com',
-            recipient_list=[user.email],
-        )
+        try:
+            send_verification_email(
+                user=user,
+                code=code,
+                subject_line='StudySpace — Verify your email',
+                intro_line='Use this 6-digit code to verify your email address and continue setting up your StudySpace account.',
+            )
+        except Exception as e:
+            import traceback
+            print("SENDGRID REGISTER EMAIL ERROR:", repr(e))
+            traceback.print_exc()
+            user.delete()
+            return Response(
+                {'error': 'Verification email failed to send. Check backend terminal output.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
 
         return Response({
             'message': 'Account created. Check your email for the verification code.',
@@ -104,12 +137,24 @@ class ResendCodeView(views.APIView):
 
         code = EmailVerificationCode.generate_code()
         EmailVerificationCode.objects.create(user=user, code=code)
-        send_mail(
-            subject='StudySpace — New verification code',
-            message=f'Your new verification code is: {code}',
-            from_email='noreply@studyspace.com',
-            recipient_list=[user.email],
-        )
+
+        try:
+            send_verification_email(
+                user=user,
+                code=code,
+                subject_line='StudySpace — New verification code',
+                intro_line='Here is your new 6-digit StudySpace verification code.',
+            )
+        except Exception as e:
+            import traceback
+            print("SENDGRID RESEND EMAIL ERROR:", repr(e))
+            traceback.print_exc()
+            return Response(
+                {'error': 'Verification email failed to send. Check backend terminal output.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        
         return Response({
             'message': 'New code sent.',
             'dev_code': code if settings.DEBUG else None,

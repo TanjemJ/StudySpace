@@ -126,8 +126,18 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# Email (console for dev, switch to SMTP for production)
+# Email (console for dev, switch to SMTP for production/dev staging)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'StudySpace <noreply@studyspace.com>'
+
+if not DEBUG:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = 'smtp.sendgrid.net'
+    EMAIL_PORT = 587
+    EMAIL_USE_TLS = True
+    EMAIL_HOST_USER = 'apikey'
+    EMAIL_HOST_PASSWORD = os.environ.get('SENDGRID_API_KEY')
+    DEFAULT_FROM_EMAIL = f"StudySpace <{os.environ.get('DEFAULT_FROM_EMAIL')}>"
 
 # Gemini API Key (set as environment variable in production)
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
