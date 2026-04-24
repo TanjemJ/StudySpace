@@ -137,7 +137,7 @@ export default function Settings() {
     } finally { setLoading(false); }
   };
 
-    const handleSendUniversityCode = async () => {
+  const handleSendUniversityCode = async () => {
     if (!universityEmail.trim()) {
       showMsg('Please enter a university email first.', true);
       return;
@@ -148,14 +148,23 @@ export default function Settings() {
       const res = await api.post('/auth/settings/university-email/send/', {
         email: universityEmail,
       });
-      setUniversityCodeSent(true);
-      showMsg(res.data.message || 'University verification code sent.');
+
+      if (res.data.auto_verified) {
+        await fetchFullProfile();
+        setUniversityCode('');
+        setUniversityCodeSent(false);
+        showMsg(res.data.message || 'University email verified automatically.');
+      } else {
+        setUniversityCodeSent(true);
+        showMsg(res.data.message || 'University verification code sent.');
+      }
     } catch (err) {
       showMsg(err.response?.data?.error || 'Failed to send university verification code.', true);
     } finally {
       setSendingUniversityCode(false);
     }
   };
+
 
   const handleVerifyUniversityCode = async () => {
     if (!universityCode.trim()) {
@@ -343,12 +352,15 @@ export default function Settings() {
                   label="University"
                   value={university}
                   onChange={(e) => setUniversity(e.target.value)}
+                  disabled={universityVerificationActive}
                   sx={{ mb: 2 }}
+
                   InputProps={{
-                    endAdornment: user.student_profile?.university_verified ? (
+                    endAdornment: universityVerificationActive ? (
                       <Chip label="Verified" size="small" color="success" />
                     ) : null,
                   }}
+
                 />
                 <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
                   <TextField
@@ -416,6 +428,7 @@ export default function Settings() {
                       sendingUniversityCode ||
                       (universityVerificationActive && !universityEmailCanChange)
                     }
+                    sx={{ minWidth: 140, height: 56, whiteSpace: 'nowrap', flexShrink: 0 }}
                   >
                     {sendingUniversityCode
                       ? 'Sending...'
@@ -438,6 +451,7 @@ export default function Settings() {
                       variant="contained"
                       onClick={handleVerifyUniversityCode}
                       disabled={!universityCode.trim() || verifyingUniversityCode}
+                      sx={{ minWidth: 140, height: 56, whiteSpace: 'nowrap', flexShrink: 0 }}
                     >
                       {verifyingUniversityCode ? 'Verifying...' : 'Verify'}
                     </Button>
@@ -465,12 +479,15 @@ export default function Settings() {
                   label="University"
                   value={university}
                   onChange={(e) => setUniversity(e.target.value)}
+                  disabled={universityVerificationActive}
                   sx={{ mb: 2 }}
+
                   InputProps={{
-                    endAdornment: user.tutor_profile?.university_verified ? (
+                    endAdornment: universityVerificationActive ? (
                       <Chip label="Verified" size="small" color="success" />
                     ) : null,
                   }}
+
                 />
                 <TextField
                   fullWidth
@@ -549,6 +566,7 @@ export default function Settings() {
                       sendingUniversityCode ||
                       (universityVerificationActive && !universityEmailCanChange)
                     }
+                    sx={{ minWidth: 140, height: 56, whiteSpace: 'nowrap', flexShrink: 0 }}
                   >
                     {sendingUniversityCode
                       ? 'Sending...'
@@ -571,6 +589,7 @@ export default function Settings() {
                       variant="contained"
                       onClick={handleVerifyUniversityCode}
                       disabled={!universityCode.trim() || verifyingUniversityCode}
+                      sx={{ minWidth: 140, height: 56, whiteSpace: 'nowrap', flexShrink: 0 }}
                     >
                       {verifyingUniversityCode ? 'Verifying...' : 'Verify'}
                     </Button>
@@ -585,9 +604,16 @@ export default function Settings() {
               </>
             )}
 
-            <Button variant="contained" startIcon={<Save />} onClick={handleSaveProfile} disabled={loading}>
+            <Button
+              variant="contained"
+              startIcon={<Save />}
+              onClick={handleSaveProfile}
+              disabled={loading}
+              sx={{ mt: 3 }}
+            >
               {loading ? 'Saving...' : 'Save Changes'}
             </Button>
+
           </TabPanel>
 
           {/* ===== ACCOUNT TAB ===== */}

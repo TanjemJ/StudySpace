@@ -6,6 +6,8 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
 import uuid
+from django.utils import timezone
+from .university_email_service import validate_university_email
 
 
 from .models import User, StudentProfile, TutorProfile, EmailVerificationCode, Notification
@@ -225,19 +227,26 @@ class RegisterStep3StudentView(views.APIView):
             return Response({'error': 'Student not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         profile, _ = StudentProfile.objects.get_or_create(user=user)
-        profile.university = data.get('university', '')
-        profile.university_email = data.get('university_email', '')
+
+        provided_university = data.get('university', '')
+        provided_university_email = (data.get('university_email') or '').strip().lower()
+
+        profile.university = provided_university
         profile.course = data.get('course', '')
         profile.year_of_study = data.get('year_of_study')
+
+        auto_verify_email = user.email.lower()
+        auto_validation = validate_university_email(auto_verify_email)
+
+        if user.is_email_verified and auto_validation['ok']:
+            profile.university = auto_validation['university_name']
+            profile.university_email = auto_verify_email
+            profile.university_verified = True
+            profile.university_verified_at = timezone.now()
+        else:
+            profile.university_email = provided_university_email
+
         profile.save()
-
-        tokens = get_tokens_for_user(user)
-        return Response({
-            'message': 'Registration complete!',
-            'user': UserSerializer(user).data,
-            'tokens': tokens,
-        })
-
 
 # --- Tutor Step 3: Company email + subjects ---
 class RegisterTutorStep3View(views.APIView):

@@ -25,6 +25,21 @@ def _get_university_profile(user):
 
     return None, None
 
+def _apply_verified_university_email(profile, profile_type, verified_email, university_name):
+    if profile_type == 'student':
+        profile.university = university_name
+        profile.university_email = verified_email
+        profile.university_verified = True
+        profile.university_verified_at = timezone.now()
+    else:
+        profile.university = university_name
+        profile.company_email = verified_email
+        profile.company_email_verified = True
+        profile.university_verified = True
+        profile.university_verified_at = timezone.now()
+
+    profile.save()
+
 
 class UpdateProfileView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -38,20 +53,45 @@ class UpdateProfileView(views.APIView):
 
         if user.role == 'student' and hasattr(user, 'student_profile'):
             profile = user.student_profile
-            for field in ['university', 'course', 'year_of_study']:
+
+            if 'university' in request.data:
+                requested_university = request.data['university']
+                if profile.university_verification_active and requested_university != profile.university:
+                    return Response(
+                        {'error': 'You cannot change your university while an active verified university email is linked to your account.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                profile.university = requested_university
+
+            for field in ['course', 'year_of_study']:
                 if field in request.data:
                     setattr(profile, field, request.data[field])
+
             profile.save()
+
 
         if user.role == 'tutor' and hasattr(user, 'tutor_profile'):
             profile = user.tutor_profile
-            for field in ['bio', 'hourly_rate', 'experience_years', 'personal_statement', 'university']:
+
+            for field in ['bio', 'hourly_rate', 'experience_years', 'personal_statement']:
                 if field in request.data:
                     setattr(profile, field, request.data[field])
+
+            if 'university' in request.data:
+                requested_university = request.data['university']
+                if profile.university_verification_active and requested_university != profile.university:
+                    return Response(
+                        {'error': 'You cannot change your institution while an active verified university email is linked to your account.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                profile.university = requested_university
+
             if 'subjects' in request.data:
                 subjects = request.data['subjects']
                 profile.subjects = [s.strip() for s in subjects.split(',')] if isinstance(subjects, str) else subjects
+
             profile.save()
+
 
         return Response({'message': 'Profile updated.', 'user': _get_full_user_data(user)})
 
@@ -72,6 +112,20 @@ class SendUniversityVerificationCodeView(views.APIView):
         validation = validate_university_email(email)
         if not validation['ok']:
             return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if user.is_email_verified and email == user.email.lower():
+            _apply_verified_university_email(
+                profile=profile,
+                profile_type=profile_type,
+                verified_email=email,
+                university_name=validation['university_name'],
+            )
+            return Response({
+                'message': 'Your university email matches your already verified account email, so it has been verified automatically.',
+                'auto_verified': True,
+                'user': _get_full_user_data(user),
+            })
+
 
         current_verified_email = (
             profile.university_email if profile_type == 'student' else profile.company_email
@@ -166,17 +220,12 @@ class VerifyUniversityEmailCodeView(views.APIView):
         if not validation['ok']:
             return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
 
-        if profile_type == 'student':
-            profile.university = validation['university_name']
-            profile.university_email = record.target_email
-            profile.university_verified = True
-            profile.university_verified_at = timezone.now()
-        else:
-            profile.university = validation['university_name']
-            profile.company_email = record.target_email
-            profile.company_email_verified = True
-            profile.university_verified = True
-            profile.university_verified_at = timezone.now()
+        _apply_verified_university_email(
+            profile=profile,
+            profile_type=profile_type,
+            verified_email=record.target_email,
+            university_name=validation['university_name'],
+        )
 
         profile.save()
 
