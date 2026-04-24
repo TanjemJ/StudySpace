@@ -113,6 +113,18 @@ class SendUniversityVerificationCodeView(views.APIView):
         if not validation['ok']:
             return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
         
+        current_verified_email = (
+            profile.university_email if profile_type == 'student' else profile.company_email
+        )
+
+        if profile.university_verification_active and current_verified_email == email:
+            return Response({
+                'message': 'This university email is already actively verified.',
+                'already_verified': True,
+                'user': _get_full_user_data(user),
+            })
+
+        
         if user.is_email_verified and email == user.email.lower():
             _apply_verified_university_email(
                 profile=profile,

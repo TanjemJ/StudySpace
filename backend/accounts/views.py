@@ -248,6 +248,14 @@ class RegisterStep3StudentView(views.APIView):
 
         profile.save()
 
+        tokens = get_tokens_for_user(user)
+        return Response({
+            'message': 'Registration complete!',
+            'user': UserSerializer(user).data,
+            'tokens': tokens,
+        })
+
+
 # --- Tutor Step 3: Company email + subjects ---
 class RegisterTutorStep3View(views.APIView):
     permission_classes = [permissions.AllowAny]

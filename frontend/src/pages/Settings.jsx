@@ -149,7 +149,7 @@ export default function Settings() {
         email: universityEmail,
       });
 
-      if (res.data.auto_verified) {
+      if (res.data.auto_verified || res.data.already_verified) {
         await fetchFullProfile();
         setUniversityCode('');
         setUniversityCodeSent(false);

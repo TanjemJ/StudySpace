@@ -75,6 +75,8 @@ export default function SignUp() {
   const [university, setUniversity] = useState('');
   const [course, setCourse] = useState('');
   const [yearOfStudy, setYearOfStudy] = useState('');
+  const [universityEmail, setUniversityEmail] = useState('');
+
 
   // Tutor steps
   const [companyEmail, setCompanyEmail] = useState('');
@@ -143,7 +145,10 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       const res = await api.post('/auth/register/step3/student/', {
-        user_id: userId, university, course,
+        user_id: userId,
+        university,
+        university_email: universityEmail,
+        course,
         year_of_study: yearOfStudy ? parseInt(yearOfStudy, 10) : null,
       });
       localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
@@ -360,6 +365,15 @@ export default function SignUp() {
                   <MenuItem value="">— Skip this step —</MenuItem>
                   {universities.map(u => <MenuItem key={u} value={u}>{u}</MenuItem>)}
                 </TextField>
+                <TextField
+                  fullWidth
+                  label="University email (optional)"
+                  type="email"
+                  value={universityEmail}
+                  onChange={(e) => setUniversityEmail(e.target.value)}
+                  helperText="If your account email is already a recognised university email, it will be verified automatically. Otherwise, you can verify it later in Settings."
+                  sx={{ mb: 2 }}
+                />
                 <TextField fullWidth label="Course name" value={course}
                   onChange={(e) => setCourse(e.target.value)} sx={{ mb: 2 }} />
                 <TextField fullWidth select label="Year of study" value={yearOfStudy}
