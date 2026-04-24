@@ -5,9 +5,25 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.conf import settings
 
-from .models import User, StudentProfile, TutorProfile, ContactMessage
+
+from .models import User, StudentProfile, TutorProfile, ContactMessage, EmailVerificationCode
 from .serializers import UserSerializer, StudentProfileSerializer, TutorProfileSerializer, ContactMessageSerializer
+from .university_email_service import validate_university_email
+from .views import send_verification_email
+
+
+def _get_university_profile(user):
+    if user.role == User.Role.STUDENT:
+        profile, _ = StudentProfile.objects.get_or_create(user=user)
+        return profile, 'student'
+
+    if user.role == User.Role.TUTOR:
+        profile, _ = TutorProfile.objects.get_or_create(user=user)
+        return profile, 'tutor'
+
+    return None, None
 
 
 class UpdateProfileView(views.APIView):
@@ -38,6 +54,145 @@ class UpdateProfileView(views.APIView):
             profile.save()
 
         return Response({'message': 'Profile updated.', 'user': _get_full_user_data(user)})
+
+class SendUniversityVerificationCodeView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        profile, profile_type = _get_university_profile(user)
+
+        if not profile:
+            return Response(
+                {'error': 'This account cannot verify a university email.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = (request.data.get('email') or '').strip().lower()
+        validation = validate_university_email(email)
+        if not validation['ok']:
+            return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
+
+        current_verified_email = (
+            profile.university_email if profile_type == 'student' else profile.company_email
+        )
+
+        if (
+            current_verified_email
+            and profile.university_verified
+            and current_verified_email != email
+            and not profile.university_email_can_change
+        ):
+            available_at = (
+                profile.university_verified_at + timezone.timedelta(days=30)
+                if profile.university_verified_at else None
+            )
+            return Response(
+                {
+                    'error': 'You can only change your verified university email once every 30 days.',
+                    'available_at': available_at.isoformat() if available_at else None,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        EmailVerificationCode.objects.filter(
+            user=user,
+            purpose=EmailVerificationCode.Purpose.UNIVERSITY_EMAIL,
+            is_used=False,
+        ).update(is_used=True)
+
+        code = EmailVerificationCode.generate_code()
+        EmailVerificationCode.objects.create(
+            user=user,
+            code=code,
+            purpose=EmailVerificationCode.Purpose.UNIVERSITY_EMAIL,
+            target_email=email,
+        )
+
+        try:
+            send_verification_email(
+                recipient_email=email,
+                code=code,
+                subject_line='StudySpace - Verify your university email',
+                intro_line='Use this 6-digit code to verify your university email and unlock university-only features on StudySpace.',
+            )
+        except Exception as e:
+            import traceback
+            print("UNIVERSITY EMAIL SEND ERROR:", repr(e))
+            traceback.print_exc()
+            return Response(
+                {'error': 'University verification email failed to send. Check backend terminal output.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({
+            'message': 'University verification code sent.',
+            'university_name': validation['university_name'],
+            'dev_code': code if settings.DEBUG and not getattr(settings, 'USE_SENDGRID_EMAIL', False) else None,
+        })
+
+
+class VerifyUniversityEmailCodeView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        profile, profile_type = _get_university_profile(user)
+
+        if not profile:
+            return Response(
+                {'error': 'This account cannot verify a university email.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        code = (request.data.get('code') or '').strip()
+        if not code:
+            return Response({'error': 'Verification code is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        record = EmailVerificationCode.objects.filter(
+            user=user,
+            code=code,
+            purpose=EmailVerificationCode.Purpose.UNIVERSITY_EMAIL,
+            is_used=False,
+        ).order_by('-created_at').first()
+
+        if not record:
+            return Response({'error': 'Invalid verification code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if record.is_expired:
+            return Response({'error': 'Code has expired. Request a new one.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        validation = validate_university_email(record.target_email)
+        if not validation['ok']:
+            return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
+
+        if profile_type == 'student':
+            profile.university = validation['university_name']
+            profile.university_email = record.target_email
+            profile.university_verified = True
+            profile.university_verified_at = timezone.now()
+        else:
+            profile.university = validation['university_name']
+            profile.company_email = record.target_email
+            profile.company_email_verified = True
+            profile.university_verified = True
+            profile.university_verified_at = timezone.now()
+
+        profile.save()
+
+        record.is_used = True
+        record.save()
+
+        EmailVerificationCode.objects.filter(
+            user=user,
+            purpose=EmailVerificationCode.Purpose.UNIVERSITY_EMAIL,
+            is_used=False,
+        ).exclude(id=record.id).update(is_used=True)
+
+        return Response({
+            'message': 'University email verified successfully.',
+            'user': _get_full_user_data(user),
+        })
 
 
 class ChangeDisplayNameView(views.APIView):

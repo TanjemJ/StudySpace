@@ -11,19 +11,23 @@ FLAGGED_KEYWORDS = ['hate', 'kill', 'threat', 'abuse', 'harass', 'racist', 'sexi
 def _get_user_university(user):
     if not user or not user.is_authenticated:
         return ''
+
     try:
-        uni = user.student_profile.university
-        if uni:
-            return uni
+        profile = user.student_profile
+        if profile.university_verification_active and profile.university:
+            return profile.university
     except Exception:
         pass
+
     try:
-        uni = user.tutor_profile.university
-        if uni:
-            return uni
+        profile = user.tutor_profile
+        if profile.university_verification_active and profile.university:
+            return profile.university
     except Exception:
         pass
+
     return ''
+
 
 
 class CategoryListView(generics.ListAPIView):

@@ -40,6 +40,13 @@ export default function Settings() {
   const [hourlyRate, setHourlyRate] = useState('');
   const [experience, setExperience] = useState('');
 
+  // University verification
+  const [universityEmail, setUniversityEmail] = useState('');
+  const [universityCode, setUniversityCode] = useState('');
+  const [sendingUniversityCode, setSendingUniversityCode] = useState(false);
+  const [verifyingUniversityCode, setVerifyingUniversityCode] = useState(false);
+  const [universityCodeSent, setUniversityCodeSent] = useState(false);
+
   // Display name
   const [newDisplayName, setNewDisplayName] = useState('');
   const [canChangeName, setCanChangeName] = useState(true);
@@ -87,6 +94,8 @@ export default function Settings() {
       setUniversity(user.student_profile.university || '');
       setCourse(user.student_profile.course || '');
       setYearOfStudy(user.student_profile.year_of_study || '');
+      setUniversityEmail(user.student_profile.university_email || '');
+
     }
     if (user.tutor_profile) {
       setBio(user.tutor_profile.bio || '');
@@ -94,6 +103,7 @@ export default function Settings() {
       setHourlyRate(user.tutor_profile.hourly_rate || '');
       setExperience(user.tutor_profile.experience_years || '');
       if (!university) setUniversity(user.tutor_profile.university || '');
+      setUniversityEmail(user.tutor_profile.company_email || '');
     }
   }, [user]);
 
@@ -126,6 +136,49 @@ export default function Settings() {
       showMsg(err.response?.data?.error || 'Failed to update profile.', true);
     } finally { setLoading(false); }
   };
+
+    const handleSendUniversityCode = async () => {
+    if (!universityEmail.trim()) {
+      showMsg('Please enter a university email first.', true);
+      return;
+    }
+
+    setSendingUniversityCode(true);
+    try {
+      const res = await api.post('/auth/settings/university-email/send/', {
+        email: universityEmail,
+      });
+      setUniversityCodeSent(true);
+      showMsg(res.data.message || 'University verification code sent.');
+    } catch (err) {
+      showMsg(err.response?.data?.error || 'Failed to send university verification code.', true);
+    } finally {
+      setSendingUniversityCode(false);
+    }
+  };
+
+  const handleVerifyUniversityCode = async () => {
+    if (!universityCode.trim()) {
+      showMsg('Please enter the verification code.', true);
+      return;
+    }
+
+    setVerifyingUniversityCode(true);
+    try {
+      const res = await api.post('/auth/settings/university-email/verify/', {
+        code: universityCode,
+      });
+      await fetchFullProfile();
+      setUniversityCode('');
+      setUniversityCodeSent(false);
+      showMsg(res.data.message || 'University email verified successfully.');
+    } catch (err) {
+      showMsg(err.response?.data?.error || 'Failed to verify university email.', true);
+    } finally {
+      setVerifyingUniversityCode(false);
+    }
+  };
+
 
   const handleChangeDisplayName = async () => {
     if (newDisplayName === user.display_name) return;
@@ -217,6 +270,15 @@ export default function Settings() {
     { label: 'Privacy', icon: <Shield sx={{ fontSize: 18 }} /> },
   ];
 
+  const universityProfile = user.student_profile || user.tutor_profile || null;
+  const universityVerified = Boolean(universityProfile?.university_verified);
+  const universityVerificationActive = Boolean(universityProfile?.university_verification_active);
+  const universityEmailCanChange = universityProfile?.university_email_can_change !== false;
+  const universityVerifiedAt = universityProfile?.university_verified_at
+    ? new Date(universityProfile.university_verified_at)
+    : null;
+
+
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Typography variant="h2" sx={{ mb: 3 }}>Settings</Typography>
@@ -276,17 +338,120 @@ export default function Settings() {
                   <School sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'text-bottom' }} />
                   University Details
                 </Typography>
-                <TextField fullWidth label="University" value={university} onChange={(e) => setUniversity(e.target.value)} sx={{ mb: 2 }}
-                  InputProps={{ endAdornment: user.student_profile?.university_verified ? <Chip label="Verified" size="small" color="success" /> : null }} />
+                <TextField
+                  fullWidth
+                  label="University"
+                  value={university}
+                  onChange={(e) => setUniversity(e.target.value)}
+                  sx={{ mb: 2 }}
+                  InputProps={{
+                    endAdornment: user.student_profile?.university_verified ? (
+                      <Chip label="Verified" size="small" color="success" />
+                    ) : null,
+                  }}
+                />
                 <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-                  <TextField fullWidth label="Course" value={course} onChange={(e) => setCourse(e.target.value)} />
-                  <TextField fullWidth select label="Year" value={yearOfStudy} onChange={(e) => setYearOfStudy(e.target.value)}>
-                    {[1,2,3,4].map(y => <MenuItem key={y} value={y}>Year {y}</MenuItem>)}
+                  <TextField
+                    fullWidth
+                    label="Course"
+                    value={course}
+                    onChange={(e) => setCourse(e.target.value)}
+                  />
+                  <TextField
+                    fullWidth
+                    select
+                    label="Year"
+                    value={yearOfStudy}
+                    onChange={(e) => setYearOfStudy(e.target.value)}
+                  >
+                    {[1, 2, 3, 4].map((y) => (
+                      <MenuItem key={y} value={y}>
+                        Year {y}
+                      </MenuItem>
+                    ))}
                     <MenuItem value={5}>Postgraduate</MenuItem>
                   </TextField>
                 </Stack>
+
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="h6" sx={{ mb: 1.5 }}>
+                  University Email Verification
+                </Typography>
+
+                <Alert
+                  severity={
+                    universityVerificationActive
+                      ? 'success'
+                      : universityVerified
+                        ? 'warning'
+                        : 'info'
+                  }
+                  sx={{ mb: 2 }}
+                >
+                  {universityVerificationActive
+                    ? `Verified for ${university || 'your university'}.`
+                    : universityVerified
+                      ? 'Your previous university verification has expired. Please verify again.'
+                      : 'Verify your university email to unlock university-only forum spaces.'}
+                </Alert>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+                  <TextField
+                    fullWidth
+                    label="University email"
+                    value={universityEmail}
+                    onChange={(e) => setUniversityEmail(e.target.value)}
+                    disabled={universityVerificationActive && !universityEmailCanChange}
+                    helperText={
+                      universityVerificationActive && !universityEmailCanChange
+                        ? 'This verified email is locked for 30 days after verification.'
+                        : 'Use your university email ending in a recognised domain.'
+                    }
+                  />
+                  <Button
+                    variant="outlined"
+                    onClick={handleSendUniversityCode}
+                    disabled={
+                      !universityEmail.trim() ||
+                      sendingUniversityCode ||
+                      (universityVerificationActive && !universityEmailCanChange)
+                    }
+                  >
+                    {sendingUniversityCode
+                      ? 'Sending...'
+                      : universityCodeSent
+                        ? 'Resend Code'
+                        : 'Send Code'}
+                  </Button>
+                </Stack>
+
+                {(universityCodeSent || !universityVerificationActive) && (
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    <TextField
+                      fullWidth
+                      label="Verification code"
+                      value={universityCode}
+                      onChange={(e) => setUniversityCode(e.target.value)}
+                      inputProps={{ maxLength: 6 }}
+                    />
+                    <Button
+                      variant="contained"
+                      onClick={handleVerifyUniversityCode}
+                      disabled={!universityCode.trim() || verifyingUniversityCode}
+                    >
+                      {verifyingUniversityCode ? 'Verifying...' : 'Verify'}
+                    </Button>
+                  </Stack>
+                )}
+
+                {universityVerifiedAt && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+                    Last verified: {universityVerifiedAt.toLocaleDateString('en-GB')}
+                  </Typography>
+                )}
               </>
             )}
+
 
             {user.role === 'tutor' && (
               <>
@@ -295,15 +460,128 @@ export default function Settings() {
                   <School sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'text-bottom' }} />
                   Tutor Profile
                 </Typography>
-                <TextField fullWidth label="University" value={university} onChange={(e) => setUniversity(e.target.value)} sx={{ mb: 2 }}
-                  InputProps={{ endAdornment: user.tutor_profile?.university_verified ? <Chip label="Verified" size="small" color="success" /> : null }} />
-                <TextField fullWidth multiline rows={4} label="Bio" value={bio} onChange={(e) => setBio(e.target.value)}
-                  helperText={`${bio.length}/2000`} sx={{ mb: 2 }} />
-                <TextField fullWidth label="Subjects (comma separated)" value={subjects} onChange={(e) => setSubjects(e.target.value)} sx={{ mb: 2 }} />
+                <TextField
+                  fullWidth
+                  label="University"
+                  value={university}
+                  onChange={(e) => setUniversity(e.target.value)}
+                  sx={{ mb: 2 }}
+                  InputProps={{
+                    endAdornment: user.tutor_profile?.university_verified ? (
+                      <Chip label="Verified" size="small" color="success" />
+                    ) : null,
+                  }}
+                />
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={4}
+                  label="Bio"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  helperText={`${bio.length}/2000`}
+                  sx={{ mb: 2 }}
+                />
+                <TextField
+                  fullWidth
+                  label="Subjects (comma separated)"
+                  value={subjects}
+                  onChange={(e) => setSubjects(e.target.value)}
+                  sx={{ mb: 2 }}
+                />
                 <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-                  <TextField fullWidth label="Hourly rate (£)" type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
-                  <TextField fullWidth label="Years of experience" type="number" value={experience} onChange={(e) => setExperience(e.target.value)} />
+                  <TextField
+                    fullWidth
+                    label="Hourly rate (£)"
+                    type="number"
+                    value={hourlyRate}
+                    onChange={(e) => setHourlyRate(e.target.value)}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Years of experience"
+                    type="number"
+                    value={experience}
+                    onChange={(e) => setExperience(e.target.value)}
+                  />
                 </Stack>
+
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="h6" sx={{ mb: 1.5 }}>
+                  University or Company Email Verification
+                </Typography>
+
+                <Alert
+                  severity={
+                    universityVerificationActive
+                      ? 'success'
+                      : universityVerified
+                        ? 'warning'
+                        : 'info'
+                  }
+                  sx={{ mb: 2 }}
+                >
+                  {universityVerificationActive
+                    ? `Verified for ${university || 'your institution'}.`
+                    : universityVerified
+                      ? 'Your previous verification has expired. Please verify again.'
+                      : 'Verify your university or company email to strengthen your verified tutor profile.'}
+                </Alert>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+                  <TextField
+                    fullWidth
+                    label="University or company email"
+                    value={universityEmail}
+                    onChange={(e) => setUniversityEmail(e.target.value)}
+                    disabled={universityVerificationActive && !universityEmailCanChange}
+                    helperText={
+                      universityVerificationActive && !universityEmailCanChange
+                        ? 'This verified email is locked for 30 days after verification.'
+                        : 'Use a recognised academic or organisation email.'
+                    }
+                  />
+                  <Button
+                    variant="outlined"
+                    onClick={handleSendUniversityCode}
+                    disabled={
+                      !universityEmail.trim() ||
+                      sendingUniversityCode ||
+                      (universityVerificationActive && !universityEmailCanChange)
+                    }
+                  >
+                    {sendingUniversityCode
+                      ? 'Sending...'
+                      : universityCodeSent
+                        ? 'Resend Code'
+                        : 'Send Code'}
+                  </Button>
+                </Stack>
+
+                {(universityCodeSent || !universityVerificationActive) && (
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    <TextField
+                      fullWidth
+                      label="Verification code"
+                      value={universityCode}
+                      onChange={(e) => setUniversityCode(e.target.value)}
+                      inputProps={{ maxLength: 6 }}
+                    />
+                    <Button
+                      variant="contained"
+                      onClick={handleVerifyUniversityCode}
+                      disabled={!universityCode.trim() || verifyingUniversityCode}
+                    >
+                      {verifyingUniversityCode ? 'Verifying...' : 'Verify'}
+                    </Button>
+                  </Stack>
+                )}
+
+                {universityVerifiedAt && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+                    Last verified: {universityVerifiedAt.toLocaleDateString('en-GB')}
+                  </Typography>
+                )}
               </>
             )}
 

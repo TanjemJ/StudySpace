@@ -89,6 +89,8 @@ class UserSerializer(serializers.ModelSerializer):
 
 class StudentProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
+    university_verification_active = serializers.ReadOnlyField()
+    university_email_can_change = serializers.ReadOnlyField()
 
     class Meta:
         model = StudentProfile
@@ -97,6 +99,8 @@ class StudentProfileSerializer(serializers.ModelSerializer):
 
 class TutorProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
+    university_verification_active = serializers.ReadOnlyField()
+    university_email_can_change = serializers.ReadOnlyField()
 
     class Meta:
         model = TutorProfile

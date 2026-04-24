@@ -84,6 +84,11 @@ urlpatterns = [
          name='settings-accessibility'),
     path('settings/delete-account/', settings_views.DeleteAccountView.as_view(),
          name='settings-delete-account'),
+    path('settings/university-email/send/', settings_views.SendUniversityVerificationCodeView.as_view(),
+         name='settings-university-email-send'),
+    path('settings/university-email/verify/', settings_views.VerifyUniversityEmailCodeView.as_view(),
+         name='settings-university-email-verify'),
+
 
     # ===== Contact =====
     path('contact/', settings_views.ContactFormView.as_view(), name='contact'),
