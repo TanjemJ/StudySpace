@@ -1,7 +1,7 @@
 import dns.exception
 import dns.resolver
 
-from .models import UniversityDomain
+from .models import StudentProfile, TutorProfile, UniversityDomain
 
 
 def normalize_email(email: str) -> str:
@@ -16,6 +16,23 @@ def extract_domain(email: str) -> str:
 def get_university_domain_record(domain: str):
     domain = (domain or '').strip().lower()
     return UniversityDomain.objects.filter(domain=domain, is_active=True).first()
+
+def university_email_is_verified_elsewhere(email: str, current_user) -> bool:
+    email = normalize_email(email)
+    if not email:
+        return False
+
+    student_exists = StudentProfile.objects.filter(
+        university_email__iexact=email,
+        university_verified=True,
+    ).exclude(user=current_user).exists()
+
+    tutor_exists = TutorProfile.objects.filter(
+        company_email__iexact=email,
+        university_verified=True,
+    ).exclude(user=current_user).exists()
+
+    return student_exists or tutor_exists
 
 
 def domain_has_mail_records(domain: str) -> bool:

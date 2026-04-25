@@ -253,6 +253,7 @@ export default function SignUp() {
       const data = err.response?.data || {};
       const msg =
         (Array.isArray(data.display_name) && data.display_name[0]) ||
+        (Array.isArray(data.date_of_birth) && data.date_of_birth[0]) ||
         data.error ||
         'Failed to save details.';
       setError(msg);

@@ -10,7 +10,7 @@ from django.conf import settings
 
 from .models import User, StudentProfile, TutorProfile, ContactMessage, EmailVerificationCode
 from .serializers import UserSerializer, StudentProfileSerializer, TutorProfileSerializer, ContactMessageSerializer
-from .university_email_service import validate_university_email
+from .university_email_service import validate_university_email, university_email_is_verified_elsewhere
 from .views import send_verification_email
 
 
@@ -114,6 +114,12 @@ class SendUniversityVerificationCodeView(views.APIView):
         if not validation['ok']:
             return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
         
+        if university_email_is_verified_elsewhere(email, user):
+            return Response(
+                {'error': 'This university email is already verified on another StudySpace account.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         current_verified_email = (
             profile.university_email if profile_type == 'student' else profile.company_email
         )
@@ -232,6 +238,13 @@ class VerifyUniversityEmailCodeView(views.APIView):
         validation = validate_university_email(record.target_email)
         if not validation['ok']:
             return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if university_email_is_verified_elsewhere(record.target_email, user):
+            return Response(
+                {'error': 'This university email is already verified on another StudySpace account.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
 
         _apply_verified_university_email(
             profile=profile,

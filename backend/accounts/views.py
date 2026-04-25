@@ -10,7 +10,7 @@ from django.conf import settings
 import uuid
 from django.utils import timezone
 
-from .university_email_service import validate_university_email
+from .university_email_service import validate_university_email, university_email_is_verified_elsewhere
 from .models import (
     User, StudentProfile, TutorProfile,
     EmailVerificationCode, PendingRegistration, Notification,
@@ -324,6 +324,13 @@ class RegisterStep3StudentView(views.APIView):
                 {'error': validation['error']},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        
+        if validation['ok'] and university_email_is_verified_elsewhere(candidate_university_email, user):
+            return Response(
+                {'error': 'This university email is already verified on another StudySpace account.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
 
         profile.university_email = ''
         profile.university_verified = False

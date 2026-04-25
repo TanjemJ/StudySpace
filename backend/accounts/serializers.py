@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone
+
 
 from .models import (
     User,
@@ -63,7 +65,15 @@ class RegisterStep2Serializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=50)
     last_name = serializers.CharField(max_length=50)
     display_name = serializers.CharField(max_length=30)
-    date_of_birth = serializers.DateField(required=False)
+    date_of_birth = serializers.DateField(
+        required=True,
+        allow_null=False,
+        error_messages={
+            'required': 'Please enter your date of birth.',
+            'null': 'Please enter your date of birth.',
+            'invalid': 'Please enter a valid date of birth.',
+        },
+    )
 
     def validate_display_name(self, value):
         if User.objects.filter(display_name=value).exists():
@@ -71,6 +81,23 @@ class RegisterStep2Serializer(serializers.Serializer):
         if len(value) < 3:
             raise serializers.ValidationError("Username must be at least 3 characters.")
         return value
+    
+    def validate_date_of_birth(self, value):
+        today = timezone.localdate()
+
+        if value > today:
+            raise serializers.ValidationError('Date of birth cannot be in the future.')
+
+        try:
+            latest_allowed_birth_date = today.replace(year=today.year - 18)
+        except ValueError:
+            latest_allowed_birth_date = today.replace(year=today.year - 18, month=2, day=28)
+
+        if value > latest_allowed_birth_date:
+            raise serializers.ValidationError('You must be at least 18 years old to use StudySpace.')
+
+        return value
+
 
 
 class RegisterStep3StudentSerializer(serializers.Serializer):
