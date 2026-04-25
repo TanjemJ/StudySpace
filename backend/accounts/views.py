@@ -2,15 +2,19 @@ from rest_framework import generics, status, permissions, views
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
+from django.contrib.auth.hashers import make_password
 from django.core.mail import EmailMultiAlternatives
+from django.db import transaction
 from django.template.loader import render_to_string
 from django.conf import settings
 import uuid
 from django.utils import timezone
+
 from .university_email_service import validate_university_email
-
-
-from .models import User, StudentProfile, TutorProfile, EmailVerificationCode, Notification
+from .models import (
+    User, StudentProfile, TutorProfile,
+    EmailVerificationCode, PendingRegistration, Notification,
+)
 from .serializers import (
     RegisterStep1Serializer, VerifyCodeSerializer, RegisterStep2Serializer,
     RegisterStep3StudentSerializer, RegisterTutorStep3Serializer,
@@ -41,94 +45,154 @@ def send_verification_email(recipient_email, code, subject_line, intro_line):
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[recipient_email],
     )
-    
+
     message.attach_alternative(html_body, 'text/html')
     message.send()
 
 
-# --- Step 1: Create user with email + password, send verification code ---
+def _unique_temp_display_name():
+    """Generate a unique temp display name — avoids display_name collision."""
+    while True:
+        candidate = f"user_{uuid.uuid4().hex[:8]}"
+        if not User.objects.filter(display_name=candidate).exists():
+            return candidate
+
+
 class RegisterStep1View(views.APIView):
+    """Stash a pending registration; no User created yet (see v1 update)."""
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         serializer = RegisterStep1Serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        email = data['email']
 
-        temp_display_name = f"user_{uuid.uuid4().hex[:8]}"
-        while User.objects.filter(display_name=temp_display_name).exists():
-            temp_display_name = f"user_{uuid.uuid4().hex[:8]}"
+        stale = PendingRegistration.objects.filter(email=email).first()
+        if stale and stale.is_expired:
+            stale.delete()
+            stale = None
 
+        code = PendingRegistration.generate_code()
+        hashed = make_password(data['password'])
 
-        user = User.objects.create_user(
-            email=data['email'],
-            username=data['email'],  # use email as username internally
-            password=data['password'],
-            role=data['role'],
-            display_name=temp_display_name,
-            is_active=True,
-            is_email_verified=False,
-        )
-
-        # Generate and "send" verification code
-        code = EmailVerificationCode.generate_code()
-        EmailVerificationCode.objects.create(
-            user=user,
-            code=code,
-            purpose=EmailVerificationCode.Purpose.ACCOUNT_EMAIL,
-            target_email=user.email,
-        )
+        if stale:
+            stale.hashed_password = hashed
+            stale.role = data['role']
+            stale.code = code
+            stale.attempts = 0
+            stale.save()
+            pending = stale
+        else:
+            pending = PendingRegistration.objects.create(
+                email=email,
+                hashed_password=hashed,
+                role=data['role'],
+                code=code,
+            )
 
         try:
             send_verification_email(
-                recipient_email=user.email,
+                recipient_email=email,
                 code=code,
                 subject_line='StudySpace - Verify your email',
                 intro_line='Use this 6-digit code to verify your email address and continue setting up your StudySpace account.',
             )
-
         except Exception as e:
             import traceback
             print("SENDGRID REGISTER EMAIL ERROR:", repr(e))
             traceback.print_exc()
-            user.delete()
+            pending.delete()
             return Response(
-                {'error': 'Verification email failed to send. Check backend terminal output.'},
+                {'error': 'Verification email failed to send. Please try again.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
         return Response({
-            'message': 'Account created. Check your email for the verification code.',
-            'user_id': str(user.id),
-            'email': user.email,
-            'role': user.role,
-            # In dev, include the code so you can test without email
+            'message': 'Check your email for the verification code.',
+            'registration_id': str(pending.id),
+            'email': email,
+            'role': data['role'],
             'dev_code': code if settings.DEBUG and not getattr(settings, 'USE_SENDGRID_EMAIL', False) else None,
         }, status=status.HTTP_201_CREATED)
 
 
-# --- Step 1b: Verify the email code ---
 class VerifyEmailCodeView(views.APIView):
+    """Verify the 6-digit code and atomically promote the pending row to a real User."""
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         serializer = VerifyCodeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email'].strip().lower()
+        submitted_code = serializer.validated_data['code']
 
         try:
-            user = User.objects.get(email=serializer.validated_data['email'])
+            pending = PendingRegistration.objects.get(email=email)
+        except PendingRegistration.DoesNotExist:
+            return self._legacy_verify(email, submitted_code)
+
+        if pending.is_expired:
+            pending.delete()
+            return Response(
+                {'error': 'This code has expired. Please start again.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if pending.attempts >= 6:
+            pending.delete()
+            return Response(
+                {'error': 'Too many failed attempts. Please start again.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if pending.code != submitted_code:
+            pending.attempts += 1
+            pending.save(update_fields=['attempts', 'updated_at'])
+            return Response(
+                {'error': 'Invalid verification code.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            if User.objects.filter(email=email).exists():
+                pending.delete()
+                return Response(
+                    {'error': 'An account with this email already exists.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user = User(
+                email=email,
+                username=email,
+                role=pending.role,
+                display_name=_unique_temp_display_name(),
+                is_active=True,
+                is_email_verified=True,
+            )
+            user.password = pending.hashed_password
+            user.save()
+            pending.delete()
+
+        return Response({
+            'message': 'Email verified successfully.',
+            'user_id': str(user.id),
+        })
+
+    def _legacy_verify(self, email, submitted_code):
+        """Fallback for users created before the PendingRegistration migration."""
+        try:
+            user = User.objects.get(email=email)
         except User.DoesNotExist:
             return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         verification = EmailVerificationCode.objects.filter(
             user=user,
-            code=serializer.validated_data['code'],
+            code=submitted_code,
             purpose=EmailVerificationCode.Purpose.ACCOUNT_EMAIL,
             target_email=user.email,
             is_used=False,
         ).order_by('-created_at').first()
-
 
         if not verification:
             return Response({'error': 'Invalid verification code.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -143,50 +207,64 @@ class VerifyEmailCodeView(views.APIView):
         return Response({'message': 'Email verified successfully.', 'user_id': str(user.id)})
 
 
-# --- Resend verification code ---
 class ResendCodeView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        email = request.data.get('email')
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        email = (request.data.get('email') or '').strip().lower()
 
-        code = EmailVerificationCode.generate_code()
-        EmailVerificationCode.objects.create(
-            user=user,
-            code=code,
-            purpose=EmailVerificationCode.Purpose.ACCOUNT_EMAIL,
-            target_email=user.email,
-        )
+        pending = PendingRegistration.objects.filter(email=email).first()
+
+        if pending:
+            if pending.is_expired:
+                pending.delete()
+                return Response(
+                    {'error': 'Your registration has expired. Please start again.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            pending.code = PendingRegistration.generate_code()
+            pending.attempts = 0
+            pending.save(update_fields=['code', 'attempts', 'updated_at'])
+            code = pending.code
+            target_email = pending.email
+        else:
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                return Response({'error': 'No pending signup found for this email.'},
+                                status=status.HTTP_404_NOT_FOUND)
+
+            code = EmailVerificationCode.generate_code()
+            EmailVerificationCode.objects.create(
+                user=user,
+                code=code,
+                purpose=EmailVerificationCode.Purpose.ACCOUNT_EMAIL,
+                target_email=user.email,
+            )
+            target_email = user.email
 
         try:
             send_verification_email(
-                recipient_email=user.email,
+                recipient_email=target_email,
                 code=code,
                 subject_line='StudySpace - New verification code',
                 intro_line='Here is your new 6-digit StudySpace verification code.',
             )
-
         except Exception as e:
             import traceback
             print("SENDGRID RESEND EMAIL ERROR:", repr(e))
             traceback.print_exc()
             return Response(
-                {'error': 'Verification email failed to send. Check backend terminal output.'},
+                {'error': 'Verification email failed to send. Please try again.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        
         return Response({
             'message': 'New code sent.',
             'dev_code': code if settings.DEBUG and not getattr(settings, 'USE_SENDGRID_EMAIL', False) else None,
         })
 
 
-# --- Step 2: Personal info ---
 class RegisterStep2View(views.APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -211,7 +289,6 @@ class RegisterStep2View(views.APIView):
         return Response({'message': 'Personal info saved.', 'user_id': str(user.id)})
 
 
-# --- Step 3: Student university info ---
 class RegisterStep3StudentView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -256,7 +333,6 @@ class RegisterStep3StudentView(views.APIView):
         })
 
 
-# --- Tutor Step 3: Company email + subjects ---
 class RegisterTutorStep3View(views.APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -279,8 +355,12 @@ class RegisterTutorStep3View(views.APIView):
         return Response({'message': 'Subjects and email saved.', 'user_id': str(user.id)})
 
 
-# --- Tutor Step 4: Rate, experience, statement ---
 class RegisterTutorStep4View(views.APIView):
+    """
+    Tutor step 4 — rate, experience, personal statement, and approximate location.
+    Location is now collected here so students can see where the tutor is based
+    when browsing tutor cards / profiles.
+    """
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -297,13 +377,15 @@ class RegisterTutorStep4View(views.APIView):
         profile.hourly_rate = data['hourly_rate']
         profile.experience_years = data['experience_years']
         profile.personal_statement = data.get('personal_statement', '')
+        profile.location_city = (data.get('location_city') or '').strip()
+        profile.location_postcode_area = (data.get('location_postcode_area') or '').strip().upper()
         profile.save()
 
-        return Response({'message': 'Rate and experience saved.', 'user_id': str(profile.user_id)})
+        return Response({'message': 'Rate, experience, and location saved.', 'user_id': str(profile.user_id)})
 
 
-# --- Tutor Step 5: Document upload + finish ---
 class RegisterTutorStep5View(views.APIView):
+    """Legacy single-file version — see tutor_docs_view.py for the multi-doc one."""
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -331,7 +413,6 @@ class RegisterTutorStep5View(views.APIView):
         })
 
 
-# --- Login ---
 class LoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -345,16 +426,21 @@ class LoginView(views.APIView):
             password=serializer.validated_data['password']
         )
         if not user:
-            return Response({'error': 'Invalid email or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({'error': 'Invalid email or password.'},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        if user.is_deleted:
+            return Response({'error': 'This account has been deleted.'},
+                            status=status.HTTP_401_UNAUTHORIZED)
 
         tokens = get_tokens_for_user(user)
         return Response({
+            'message': 'Login successful.',
             'user': UserSerializer(user).data,
             'tokens': tokens,
         })
 
 
-# --- Current user profile ---
 class MeView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -378,12 +464,11 @@ class MeView(views.APIView):
         return Response(data)
 
 
-# --- Tutor search (public) ---
 class TutorSearchView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = TutorCardSerializer
     filterset_fields = ['verification_status']
-    search_fields = ['user__display_name', 'subjects', 'bio']
+    search_fields = ['user__display_name', 'subjects', 'bio', 'location_city']
     ordering_fields = ['hourly_rate', 'average_rating', 'total_sessions']
 
     def get_queryset(self):
@@ -394,6 +479,11 @@ class TutorSearchView(generics.ListAPIView):
         subject = self.request.query_params.get('subject')
         if subject:
             qs = qs.filter(subjects__contains=[subject])
+
+        # New: optional location filter — case-insensitive city match.
+        location = self.request.query_params.get('location')
+        if location:
+            qs = qs.filter(location_city__icontains=location)
 
         min_price = self.request.query_params.get('min_price')
         max_price = self.request.query_params.get('max_price')
@@ -409,7 +499,6 @@ class TutorSearchView(generics.ListAPIView):
         return qs
 
 
-# --- Tutor detail (public) ---
 class TutorDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = TutorProfileSerializer
@@ -418,7 +507,6 @@ class TutorDetailView(generics.RetrieveAPIView):
     lookup_url_kwarg = 'user_id'
 
 
-# --- Notifications ---
 class NotificationListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = NotificationSerializer
@@ -440,7 +528,6 @@ class NotificationMarkReadView(views.APIView):
             return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 
-# --- Check username availability ---
 class CheckUsernameView(views.APIView):
     permission_classes = [permissions.AllowAny]
 

@@ -10,17 +10,22 @@ import api from '../../utils/api';
 /**
  * Displays a pending change request on a booking with diff (Current → Proposed)
  * and action buttons.
- *
- * Shows one of two action sets:
- *   — If the current user is the requester → "Withdraw"
- *   — If the current user is the other party → "Accept change" / "Decline"
- *
- * Props:
- *   changeRequest — the pending_change object from the serialized booking
- *   booking       — the parent booking (used for current values + current user role)
- *   currentUserId — to detect requester vs other party
- *   onResolved    — () => void  (refetch after resolve)
  */
+function sessionTypeLabel(t) {
+  if (t === 'video') return 'Video Call';
+  if (t === 'in_person') return 'In Person';
+  if (t === 'chat') return 'Other';   // legacy
+  if (t === 'other') return 'Other';
+  return t || '—';
+}
+
+function platformLabel(p) {
+  if (p === 'google_meet') return 'Google Meet';
+  if (p === 'zoom') return 'Zoom';
+  if (p === 'teams') return 'Microsoft Teams';
+  return p || '—';
+}
+
 export default function ChangeRequestCard({
   changeRequest: cr, booking, currentUserId, onResolved,
 }) {
@@ -30,10 +35,6 @@ export default function ChangeRequestCard({
   if (!cr) return null;
 
   const isRequester = cr.requested_by_name && String(cr.requested_by_name) &&
-    // We compare user IDs where available, but the serializer exposes
-    // requested_by = 'student' | 'tutor' + requested_by_name. We infer
-    // requester identity from the booking: requester is student if
-    // requested_by == 'student', else tutor.
     ((cr.requested_by === 'student' && booking.student_id === currentUserId) ||
      (cr.requested_by === 'tutor' && booking.tutor_id === currentUserId));
 
@@ -49,7 +50,7 @@ export default function ChangeRequestCard({
     }
   };
 
-  // Build diff rows — only show fields that actually changed
+  // Build diff rows — only show fields that actually changed.
   const diffs = [];
   if (cr.proposed_date && cr.proposed_date !== cr.current_date) {
     diffs.push({ label: 'Date', from: cr.current_date, to: cr.proposed_date });
@@ -71,8 +72,25 @@ export default function ChangeRequestCard({
   if (cr.proposed_session_type && cr.proposed_session_type !== cr.current_session_type) {
     diffs.push({
       label: 'Session type',
-      from: cr.current_session_type,
-      to: cr.proposed_session_type,
+      from: sessionTypeLabel(cr.current_session_type),
+      to: sessionTypeLabel(cr.proposed_session_type),
+    });
+  }
+  // New (2026-04-25): platform / location diff rows.
+  if (cr.proposed_video_platform &&
+      cr.proposed_video_platform !== (cr.current_video_platform || '')) {
+    diffs.push({
+      label: 'Video platform',
+      from: platformLabel(cr.current_video_platform) || '— not set —',
+      to: platformLabel(cr.proposed_video_platform),
+    });
+  }
+  if (cr.proposed_location_suggestion &&
+      cr.proposed_location_suggestion !== (cr.current_location_suggestion || '')) {
+    diffs.push({
+      label: 'Location',
+      from: cr.current_location_suggestion || '— not set —',
+      to: cr.proposed_location_suggestion,
     });
   }
 
@@ -84,9 +102,27 @@ export default function ChangeRequestCard({
     >
       <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
         {isRequester
-          ? 'You proposed a change — waiting for a response'
-          : `${cr.requested_by_name} proposed a change`}
+          ? 'You requested a change to this booking.'
+          : `${cr.requested_by_name} proposed a change.`}
       </Typography>
+
+      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
+
+      {diffs.length > 0 && (
+        <Box sx={{ mb: 1.5 }}>
+          {diffs.map((d, i) => (
+            <Stack key={i} direction="row" alignItems="center" spacing={1}
+                   sx={{ flexWrap: 'wrap', mb: 0.25 }}>
+              <Typography variant="caption" sx={{ minWidth: 100, fontWeight: 600 }}>
+                {d.label}:
+              </Typography>
+              <Chip size="small" variant="outlined" label={String(d.from)} />
+              <ArrowForward sx={{ fontSize: 14 }} />
+              <Chip size="small" color="warning" label={String(d.to)} />
+            </Stack>
+          ))}
+        </Box>
+      )}
 
       {cr.message && (
         <Typography variant="body2" sx={{ fontStyle: 'italic', mb: 1.5 }}>
@@ -94,53 +130,27 @@ export default function ChangeRequestCard({
         </Typography>
       )}
 
-      {diffs.length > 0 && (
-        <Box sx={{ mb: 1.5 }}>
-          {diffs.map(d => (
-            <Box key={d.label} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-              <Typography variant="caption" color="text.secondary"
-                          sx={{ minWidth: 100, fontWeight: 600 }}>
-                {d.label}
-              </Typography>
-              <Chip label={String(d.from)} size="small" variant="outlined" />
-              <ArrowForward sx={{ fontSize: 14 }} />
-              <Chip label={String(d.to)} size="small" color="warning" />
-            </Box>
-          ))}
-        </Box>
-      )}
-
-      {error && (
-        <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1 }}>
-          {error}
-        </Typography>
-      )}
-
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
         {isRequester ? (
           <Button
-            size="small" variant="outlined"
-            startIcon={<Undo />}
-            onClick={() => resolve('withdraw')}
-            disabled={submitting}
+            size="small" variant="outlined" startIcon={<Undo />}
+            onClick={() => resolve('withdraw')} disabled={submitting}
           >
-            Withdraw Request
+            Withdraw
           </Button>
         ) : (
           <>
             <Button
               size="small" variant="contained" color="success"
               startIcon={<CheckCircle />}
-              onClick={() => resolve('accept')}
-              disabled={submitting}
+              onClick={() => resolve('accept')} disabled={submitting}
             >
-              Accept Change
+              Accept change
             </Button>
             <Button
               size="small" variant="outlined" color="error"
               startIcon={<Cancel />}
-              onClick={() => resolve('decline')}
-              disabled={submitting}
+              onClick={() => resolve('decline')} disabled={submitting}
             >
               Decline
             </Button>

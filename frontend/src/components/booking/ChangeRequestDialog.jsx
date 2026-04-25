@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button,
-  TextField, MenuItem, Box, Alert, Typography, Stack, Chip,
+  TextField, MenuItem, Box, Alert, Typography, Stack,
 } from '@mui/material';
 import { SwapHoriz } from '@mui/icons-material';
 import api from '../../utils/api';
@@ -9,33 +9,56 @@ import api from '../../utils/api';
 /**
  * Shared dialog for proposing changes to a booking.
  *
- * Either the tutor or the student can open this. They can propose a new date,
- * a new start/end time, or a new session type, plus an optional message.
- * Submitting creates a BookingChangeRequest on the backend and notifies the
- * other party.
- *
- * Props:
- *   open           — bool
- *   booking        — the current booking object
- *   onClose        — () => void
- *   onSubmitted    — () => void  (called after success so parent can refetch)
+ * Either the tutor or the student can open this. They can propose:
+ *   - new date / start / end time
+ *   - new session type (video or in_person — chat is no longer offered)
+ *   - new video platform (only when session_type='video')
+ *   - new location suggestion (only when session_type='in_person')
+ * plus an optional explanatory message.
  */
+const SESSION_TYPE_OPTIONS = [
+  { value: 'video', label: 'Video Call' },
+  { value: 'in_person', label: 'In Person' },
+];
+const VIDEO_PLATFORM_OPTIONS = [
+  { value: 'google_meet', label: 'Google Meet' },
+  { value: 'zoom', label: 'Zoom' },
+  { value: 'teams', label: 'Microsoft Teams' },
+];
+
+// Pretty display of a session_type value coming back from the server,
+// including the legacy 'chat' value (now shown as "Other" per design).
+function sessionTypeLabel(t) {
+  if (t === 'video') return 'Video Call';
+  if (t === 'in_person') return 'In Person';
+  if (t === 'chat') return 'Other';   // legacy
+  if (t === 'other') return 'Other';
+  return t || '—';
+}
+
 export default function ChangeRequestDialog({ open, booking, onClose, onSubmitted }) {
   const [proposedDate, setProposedDate] = useState('');
   const [proposedStart, setProposedStart] = useState('');
   const [proposedEnd, setProposedEnd] = useState('');
   const [proposedType, setProposedType] = useState('');
+  const [proposedPlatform, setProposedPlatform] = useState('');
+  const [proposedLocation, setProposedLocation] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  // Pre-fill with the current values when the dialog opens
+  // Pre-fill with the current booking values when the dialog opens.
+  // For session_type, if the booking is a legacy 'chat', default the proposal to 'video'
+  // since chat isn't a valid choice anymore.
   useEffect(() => {
     if (open && booking) {
       setProposedDate(booking.slot_date || '');
       setProposedStart(booking.slot_start?.slice(0, 5) || '');
       setProposedEnd(booking.slot_end?.slice(0, 5) || '');
-      setProposedType(booking.session_type || '');
+      const t = booking.session_type || 'video';
+      setProposedType(t === 'chat' || t === 'other' ? 'video' : t);
+      setProposedPlatform(booking.video_platform || '');
+      setProposedLocation(booking.location_suggestion || '');
       setMessage('');
       setError('');
     }
@@ -43,11 +66,19 @@ export default function ChangeRequestDialog({ open, booking, onClose, onSubmitte
 
   if (!booking) return null;
 
-  const hasChanges =
-    proposedDate !== booking.slot_date ||
-    proposedStart !== booking.slot_start?.slice(0, 5) ||
-    proposedEnd !== booking.slot_end?.slice(0, 5) ||
-    proposedType !== booking.session_type;
+  // Detect changes — note that platform/location only count as "changed"
+  // when the matching session_type is selected.
+  const dateChanged    = proposedDate !== booking.slot_date;
+  const startChanged   = proposedStart !== booking.slot_start?.slice(0, 5);
+  const endChanged     = proposedEnd !== booking.slot_end?.slice(0, 5);
+  const typeChanged    = proposedType !== booking.session_type;
+  const platformChanged = proposedType === 'video' &&
+                          proposedPlatform !== (booking.video_platform || '');
+  const locationChanged = proposedType === 'in_person' &&
+                          proposedLocation.trim() !== (booking.location_suggestion || '').trim();
+
+  const hasChanges = dateChanged || startChanged || endChanged ||
+                     typeChanged || platformChanged || locationChanged;
 
   const submit = async () => {
     if (!hasChanges) {
@@ -58,12 +89,12 @@ export default function ChangeRequestDialog({ open, booking, onClose, onSubmitte
     setError('');
     try {
       const payload = { message };
-      if (proposedDate !== booking.slot_date) payload.proposed_date = proposedDate;
-      if (proposedStart !== booking.slot_start?.slice(0, 5))
-        payload.proposed_start_time = proposedStart + ':00';
-      if (proposedEnd !== booking.slot_end?.slice(0, 5))
-        payload.proposed_end_time = proposedEnd + ':00';
-      if (proposedType !== booking.session_type) payload.proposed_session_type = proposedType;
+      if (dateChanged) payload.proposed_date = proposedDate;
+      if (startChanged) payload.proposed_start_time = proposedStart + ':00';
+      if (endChanged) payload.proposed_end_time = proposedEnd + ':00';
+      if (typeChanged) payload.proposed_session_type = proposedType;
+      if (platformChanged) payload.proposed_video_platform = proposedPlatform;
+      if (locationChanged) payload.proposed_location_suggestion = proposedLocation.trim();
 
       await api.post(`/tutoring/bookings/${booking.id}/change-requests/`, payload);
       onSubmitted?.();
@@ -96,8 +127,7 @@ export default function ChangeRequestDialog({ open, booking, onClose, onSubmitte
             onChange={(e) => setProposedDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
             inputProps={{ min: new Date().toISOString().slice(0, 10) }}
-            helperText={proposedDate !== booking.slot_date
-              ? `Was: ${booking.slot_date}` : 'Unchanged'}
+            helperText={dateChanged ? `Was: ${booking.slot_date}` : 'Unchanged'}
           />
 
           <Stack direction="row" spacing={2}>
@@ -106,16 +136,14 @@ export default function ChangeRequestDialog({ open, booking, onClose, onSubmitte
               value={proposedStart}
               onChange={(e) => setProposedStart(e.target.value)}
               InputLabelProps={{ shrink: true }}
-              helperText={proposedStart !== booking.slot_start?.slice(0, 5)
-                ? `Was: ${booking.slot_start?.slice(0, 5)}` : 'Unchanged'}
+              helperText={startChanged ? `Was: ${booking.slot_start?.slice(0, 5)}` : 'Unchanged'}
             />
             <TextField
               fullWidth type="time" label="End time"
               value={proposedEnd}
               onChange={(e) => setProposedEnd(e.target.value)}
               InputLabelProps={{ shrink: true }}
-              helperText={proposedEnd !== booking.slot_end?.slice(0, 5)
-                ? `Was: ${booking.slot_end?.slice(0, 5)}` : 'Unchanged'}
+              helperText={endChanged ? `Was: ${booking.slot_end?.slice(0, 5)}` : 'Unchanged'}
             />
           </Stack>
 
@@ -123,13 +151,47 @@ export default function ChangeRequestDialog({ open, booking, onClose, onSubmitte
             select fullWidth label="Session type"
             value={proposedType}
             onChange={(e) => setProposedType(e.target.value)}
-            helperText={proposedType !== booking.session_type
-              ? `Was: ${booking.session_type}` : 'Unchanged'}
+            helperText={typeChanged ? `Was: ${sessionTypeLabel(booking.session_type)}` : 'Unchanged'}
           >
-            <MenuItem value="video">Video Call</MenuItem>
-            <MenuItem value="in_person">In Person</MenuItem>
-            <MenuItem value="chat">Chat</MenuItem>
+            {SESSION_TYPE_OPTIONS.map(o => (
+              <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+            ))}
           </TextField>
+
+          {/* Conditional: video platform */}
+          {proposedType === 'video' && (
+            <TextField
+              select fullWidth label="Video platform"
+              value={proposedPlatform}
+              onChange={(e) => setProposedPlatform(e.target.value)}
+              helperText={
+                platformChanged
+                  ? `Was: ${booking.video_platform || '— not set —'}`
+                  : 'Optional — leave blank if no preference'
+              }
+            >
+              <MenuItem value=""><em>No preference</em></MenuItem>
+              {VIDEO_PLATFORM_OPTIONS.map(p => (
+                <MenuItem key={p.value} value={p.value}>{p.label}</MenuItem>
+              ))}
+            </TextField>
+          )}
+
+          {/* Conditional: location suggestion */}
+          {proposedType === 'in_person' && (
+            <TextField
+              fullWidth label="Suggested location"
+              value={proposedLocation}
+              onChange={(e) => setProposedLocation(e.target.value)}
+              placeholder="e.g. LSBU library, near Elephant & Castle"
+              helperText={
+                locationChanged
+                  ? `Was: ${booking.location_suggestion || '— not set —'}`
+                  : 'Optional — your tutor will confirm or propose somewhere else'
+              }
+              inputProps={{ maxLength: 200 }}
+            />
+          )}
 
           <TextField
             fullWidth multiline rows={3}

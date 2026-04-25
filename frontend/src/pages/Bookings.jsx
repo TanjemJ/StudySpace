@@ -43,6 +43,11 @@ export default function Bookings() {
   const [cancelTarget, setCancelTarget] = useState(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewTarget, setReviewTarget] = useState(null);
+
+  const [declineTarget, setDeclineTarget] = useState(null);
+  const [declineReason, setDeclineReason] = useState('');
+  const [declineSubmitting, setDeclineSubmitting] = useState(false);
+
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
 
@@ -109,6 +114,42 @@ export default function Bookings() {
     setCancelOpen(true);
   };
 
+    // Tutor accepts a pending booking — one click, no dialog.
+  const quickAccept = async (booking) => {
+    try {
+      await api.post(`/tutoring/bookings/${booking.id}/accept/`);
+      setSnackbar('Booking accepted.');
+      fetchBookings();
+    } catch (err) {
+      setSnackbar(err.response?.data?.error || 'Failed to accept booking.');
+    }
+  };
+
+  const openDecline = (booking) => {
+    setDeclineTarget(booking);
+    setDeclineReason('');
+    setError('');
+  };
+
+  const submitDecline = async () => {
+    if (!declineTarget) return;
+    setDeclineSubmitting(true);
+    setError('');
+    try {
+      await api.post(`/tutoring/bookings/${declineTarget.id}/decline/`, {
+        reason: declineReason,
+      });
+      setSnackbar('Booking declined. The student has been refunded.');
+      setDeclineTarget(null);
+      setDeclineReason('');
+      fetchBookings();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to decline booking.');
+    } finally {
+      setDeclineSubmitting(false);
+    }
+  };
+
   // --- rendering helpers ---
   const statusColor = (s) => {
     if (s === 'confirmed') return 'success';
@@ -129,6 +170,21 @@ export default function Bookings() {
     if (type === 'in_person') return <PersonIcon sx={{ fontSize: 16 }} />;
     return <ChatIcon sx={{ fontSize: 16 }} />;
   };
+
+  function sessionTypeLabel(t) {
+    if (t === 'video') return 'Video Call';
+    if (t === 'in_person') return 'In Person';
+    if (t === 'chat') return 'Other';
+    if (t === 'other') return 'Other';
+    return t || '—';
+  }
+
+  function videoPlatformLabel(p) {
+    if (p === 'google_meet') return 'Google Meet';
+    if (p === 'zoom') return 'Zoom';
+    if (p === 'teams') return 'Microsoft Teams';
+    return p || '';
+  }
 
   const refundTierChip = (booking) => {
     if (!booking.refund_tier) return null;
@@ -248,6 +304,26 @@ export default function Bookings() {
                 {/* Actions row (active bookings only) */}
                 {isActive && (
                   <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    
+                    {isTutor && b.status === 'pending' && !pendingChange && (
+                      <>
+                        <Button
+                          size="small" variant="contained" color="success"
+                          startIcon={<CheckCircle />}
+                          onClick={() => quickAccept(b)}
+                        >
+                          Accept
+                        </Button>
+                        <Button
+                          size="small" variant="outlined" color="error"
+                          startIcon={<CancelIcon />}
+                          onClick={() => openDecline(b)}
+                        >
+                          Decline
+                        </Button>
+                      </>
+                    )}
+
                     {canRequestChange && (
                       <Button
                         size="small" variant="outlined" startIcon={<SwapHoriz />}
@@ -373,6 +449,40 @@ export default function Bookings() {
         message={snackbar}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
+
+      <Dialog
+        open={!!declineTarget}
+        onClose={() => !declineSubmitting && setDeclineTarget(null)}
+        maxWidth="sm" fullWidth
+      >
+        <DialogTitle>Decline booking?</DialogTitle>
+        <DialogContent dividers>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            The student will receive a full refund and the time slot will be freed.
+          </Typography>
+          <TextField
+            fullWidth multiline rows={3}
+            label="Reason (optional)"
+            placeholder="e.g. I'm no longer available at that time."
+            value={declineReason}
+            onChange={(e) => setDeclineReason(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeclineTarget(null)} disabled={declineSubmitting}>
+            Back
+          </Button>
+          <Button
+            variant="contained" color="error"
+            onClick={submitDecline}
+            disabled={declineSubmitting}
+          >
+            {declineSubmitting ? 'Declining...' : 'Decline Booking'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
     </Container>
   );
 }

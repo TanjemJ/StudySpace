@@ -1,35 +1,89 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 import {
   Box, Container, Card, CardContent, Typography, TextField, Button, Alert,
   Stepper, Step, StepLabel, ToggleButtonGroup, ToggleButton, FormControlLabel,
-  Checkbox, IconButton, InputAdornment, MenuItem, LinearProgress, Stack, Select,
+  Checkbox, IconButton, InputAdornment, MenuItem, Stack, LinearProgress,
 } from '@mui/material';
 import {
   Visibility, VisibilityOff, Person, School, CloudUpload, InsertDriveFile, Close,
+  CheckCircle, Cancel as CancelIcon,
 } from '@mui/icons-material';
+import { evaluatePassword, PASSWORD_RULES, noPasteProps } from '../utils/passwordRules';
 
-function PasswordStrength({ password }) {
-  let score = 0;
-  if (password.length >= 8) score++;
-  if (password.length >= 12) score++;
-  if (/[A-Z]/.test(password)) score++;
-  if (/[a-z]/.test(password)) score++;
-  if (/[0-9]/.test(password)) score++;
-  if (/[^A-Za-z0-9]/.test(password)) score++;
-  const pct = (score / 6) * 100;
-  const color = pct < 34 ? 'error' : pct < 67 ? 'warning' : 'success';
-  const label = pct < 34 ? 'Weak' : pct < 67 ? 'Fair' : 'Strong';
+// ---- Session resume ------------------------------------------------------
+
+// Persist just enough to rehydrate after a page refresh — NOT localStorage
+// (clears on browser close).
+const SESSION_KEY = 'studyspace_signup_state';
+
+function loadSessionState() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSessionState(state) {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+function clearSessionState() {
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+// ---- Password strength UI (rule checklist + meter) ----------------------
+
+function PasswordStrengthChecklist({ password, context }) {
   if (!password) return null;
+  const { results, score, label, color } = evaluatePassword(password, context);
+  const pct = Math.min(100, Math.round((score / 7) * 100));
+
   return (
     <Box sx={{ mt: 0.5 }}>
-      <LinearProgress variant="determinate" value={pct} color={color} sx={{ height: 6, borderRadius: 3 }} />
-      <Typography variant="caption" color={`${color}.main`}>{label}</Typography>
+      <LinearProgress
+        variant="determinate"
+        value={pct}
+        color={color}
+        sx={{ height: 6, borderRadius: 3 }}
+      />
+      <Typography variant="caption" sx={{ color: `${color}.main`, fontWeight: 600 }}>
+        {label}
+      </Typography>
+      <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+        {results.map((r) => (
+          <Box key={r.key} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            {r.pass ? (
+              <CheckCircle sx={{ fontSize: 14, color: 'success.main' }} />
+            ) : (
+              <CancelIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+            )}
+            <Typography
+              variant="caption"
+              sx={{ color: r.pass ? 'success.main' : 'text.secondary' }}
+            >
+              {r.label}
+            </Typography>
+          </Box>
+        ))}
+      </Stack>
     </Box>
   );
 }
+
+// ---- Step labels + upload config ----------------------------------------
 
 const studentSteps = ['Account', 'Verify Email', 'Personal Info', 'University (Optional)'];
 const tutorSteps = ['Account', 'Verify Email', 'Personal Info', 'Verification', 'Rate & Experience', 'Documents'];
@@ -48,11 +102,14 @@ const ALLOWED_EXTS = /\.(pdf|jpg|jpeg|png)$/i;
 export default function SignUp() {
   const navigate = useNavigate();
   const { updateUser } = useAuth();
+
   const [role, setRole] = useState('student');
   const [step, setStep] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
+  const [registrationId, setRegistrationId] = useState(null);
+  const [resumedBanner, setResumedBanner] = useState(false);
 
   // Step 1
   const [email, setEmail] = useState('');
@@ -77,7 +134,6 @@ export default function SignUp() {
   const [yearOfStudy, setYearOfStudy] = useState('');
   const [universityEmail, setUniversityEmail] = useState('');
 
-
   // Tutor steps
   const [companyEmail, setCompanyEmail] = useState('');
   const [subjects, setSubjects] = useState('');
@@ -85,33 +141,97 @@ export default function SignUp() {
   const [experience, setExperience] = useState('');
   const [personalStatement, setPersonalStatement] = useState('');
 
-  // Tutor step 5 — documents (NEW)
-  const [documents, setDocuments] = useState([]); // [{ file, type }]
+  // Tutor step 5 — documents
+  const [documents, setDocuments] = useState([]);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
 
   const steps = role === 'student' ? studentSteps : tutorSteps;
+
+  // ---- Session resume on mount ----
+  useEffect(() => {
+    const saved = loadSessionState();
+    if (!saved) return;
+
+    // Only resume if the saved state is specifically between step 1 (code sent)
+    // and before Step 2 userId exists (i.e., the user hasn't completed verification yet).
+    if (saved.registrationId && !saved.userId) {
+      setEmail(saved.email || '');
+      setRole(saved.role || 'student');
+      setRegistrationId(saved.registrationId);
+      setStep(1); // verification step
+      setResumedBanner(true);
+      return;
+    }
+
+    // Or resume mid-flow after verification (userId set, still not complete)
+    if (saved.userId) {
+      setEmail(saved.email || '');
+      setRole(saved.role || 'student');
+      setUserId(saved.userId);
+      setStep(saved.step || 2);
+      setResumedBanner(true);
+    }
+  }, []);
+
+  // Persist on every relevant state change.
+  useEffect(() => {
+    // Don't save if we haven't started.
+    if (step === 0) return;
+    saveSessionState({
+      email,
+      role,
+      step,
+      registrationId,
+      userId,
+    });
+  }, [email, role, step, registrationId, userId]);
+
+  const finishSignup = (res) => {
+    clearSessionState();
+    localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
+    updateUser(res.data.user);
+    navigate('/dashboard');
+  };
 
   // ---------- step handlers ----------
 
   const handleStep1 = async () => {
     if (!agreed) { setError('Please agree to the terms.'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
+    const strength = evaluatePassword(password, { email });
+    if (!strength.allPass) {
+      setError('Please choose a stronger password — see the checklist below.');
+      return;
+    }
+
     setError(''); setLoading(true);
     try {
-      const res = await api.post('/auth/register/step1/', { email, password, confirm_password: confirmPassword, role });
-      setUserId(res.data.user_id);
+      const res = await api.post('/auth/register/step1/', {
+        email, password, confirm_password: confirmPassword, role,
+      });
+      setRegistrationId(res.data.registration_id || null);
       setDevCode(res.data.dev_code || '');
       setStep(1);
     } catch (err) {
-      setError(err.response?.data?.email?.[0] || err.response?.data?.password?.[0] || 'Registration failed.');
+      // Backend might return field-specific errors from the new validator.
+      const data = err.response?.data || {};
+      const msg =
+        (Array.isArray(data.email) && data.email[0]) ||
+        (Array.isArray(data.password) && data.password[0]) ||
+        (typeof data.password === 'string' && data.password) ||
+        data.error ||
+        'Registration failed.';
+      setError(msg);
     } finally { setLoading(false); }
   };
 
   const handleVerifyCode = async () => {
     setError(''); setLoading(true);
     try {
-      await api.post('/auth/register/verify-code/', { email, code });
+      const res = await api.post('/auth/register/verify-code/', { email, code });
+      // New backend returns user_id — we now have a real User row.
+      if (res.data.user_id) setUserId(res.data.user_id);
       setStep(2);
     } catch (err) {
       setError(err.response?.data?.error || 'Verification failed.');
@@ -137,7 +257,12 @@ export default function SignUp() {
       });
       setStep(3);
     } catch (err) {
-      setError(err.response?.data?.display_name?.[0] || 'Failed to save details.');
+      const data = err.response?.data || {};
+      const msg =
+        (Array.isArray(data.display_name) && data.display_name[0]) ||
+        data.error ||
+        'Failed to save details.';
+      setError(msg);
     } finally { setLoading(false); }
   };
 
@@ -151,9 +276,7 @@ export default function SignUp() {
         course,
         year_of_study: yearOfStudy ? parseInt(yearOfStudy, 10) : null,
       });
-      localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
-      updateUser(res.data.user);
-      navigate('/dashboard');
+      finishSignup(res);
     } catch {
       setError('Something went wrong.');
     } finally { setLoading(false); }
@@ -168,7 +291,12 @@ export default function SignUp() {
       });
       setStep(4);
     } catch (err) {
-      setError(err.response?.data?.company_email?.[0] || 'Failed to save subjects.');
+      const data = err.response?.data || {};
+      const msg =
+        (Array.isArray(data.company_email) && data.company_email[0]) ||
+        data.error ||
+        'Failed to save subjects.';
+      setError(msg);
     } finally { setLoading(false); }
   };
 
@@ -183,52 +311,8 @@ export default function SignUp() {
       });
       setStep(5);
     } catch {
-      setError('Failed to save rate.');
+      setError('Failed to save rate. Please try again.');
     } finally { setLoading(false); }
-  };
-
-  // ---------- document handlers (NEW for step 5) ----------
-
-  const addFiles = (files) => {
-    setError('');
-    if (documents.length + files.length > MAX_DOCS) {
-      setError(`Maximum ${MAX_DOCS} documents allowed (${documents.length} already added).`);
-      return;
-    }
-    const valid = [];
-    for (const f of files) {
-      if (f.size > MAX_SIZE_MB * 1024 * 1024) {
-        setError(`${f.name} exceeds the ${MAX_SIZE_MB}MB limit.`);
-        return;
-      }
-      if (!ALLOWED_EXTS.test(f.name)) {
-        setError(`${f.name} must be PDF, JPG, or PNG.`);
-        return;
-      }
-      valid.push({ file: f, type: 'qualification' });
-    }
-    setDocuments(prev => [...prev, ...valid]);
-  };
-
-  const handleFileInputChange = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length) addFiles(files);
-    // Reset so picking the same file twice still fires onChange
-    e.target.value = '';
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setDragActive(false);
-    addFiles(Array.from(e.dataTransfer.files));
-  };
-
-  const updateDocType = (i, type) => {
-    setDocuments(prev => prev.map((d, idx) => idx === i ? { ...d, type } : d));
-  };
-
-  const removeDoc = (i) => {
-    setDocuments(prev => prev.filter((_, idx) => idx !== i));
   };
 
   const handleTutorStep5 = async () => {
@@ -237,27 +321,52 @@ export default function SignUp() {
       return;
     }
     setError(''); setLoading(true);
+    const formData = new FormData();
+    formData.append('user_id', userId);
+    formData.append('document_count', documents.length);
+    documents.forEach((d, i) => {
+      formData.append(`document_${i}`, d.file);
+      formData.append(`document_${i}_type`, d.type || 'other');
+    });
     try {
-      const formData = new FormData();
-      formData.append('user_id', userId);
-      formData.append('document_count', documents.length.toString());
-      documents.forEach((d, i) => {
-        formData.append(`document_${i}`, d.file);
-        formData.append(`document_${i}_type`, d.type);
-      });
       const res = await api.post('/auth/register/step5/tutor/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
-      updateUser(res.data.user);
-      navigate('/tutor-dashboard');
+      finishSignup(res);
     } catch (err) {
-      setError(err.response?.data?.error || 'Upload failed. Please try again.');
+      setError(err.response?.data?.error || 'Upload failed.');
     } finally { setLoading(false); }
   };
 
-  // ---------- render ----------
+  // ---- file drop/select ----
+  const acceptFiles = (files) => {
+    const incoming = Array.from(files);
+    const next = [...documents];
+    for (const f of incoming) {
+      if (next.length >= MAX_DOCS) break;
+      if (!ALLOWED_EXTS.test(f.name)) continue;
+      if (f.size > MAX_SIZE_MB * 1024 * 1024) continue;
+      next.push({ file: f, type: 'other' });
+    }
+    setDocuments(next);
+  };
+  const onDrop = (e) => {
+    e.preventDefault(); setDragActive(false);
+    acceptFiles(e.dataTransfer.files);
+  };
+  const onDragOver = (e) => { e.preventDefault(); setDragActive(true); };
+  const onDragLeave = () => setDragActive(false);
 
+  const handleStartOver = () => {
+    clearSessionState();
+    setStep(0);
+    setEmail(''); setPassword(''); setConfirmPassword('');
+    setUserId(null); setRegistrationId(null);
+    setResumedBanner(false);
+    setError('');
+  };
+
+  // ---------- render ----------
   return (
     <Box sx={{ minHeight: '80vh', display: 'flex', alignItems: 'center', bgcolor: 'background.default', py: 4 }}>
       <Container maxWidth="sm">
@@ -266,6 +375,21 @@ export default function SignUp() {
             <Typography variant="h3" textAlign="center" color="primary" sx={{ mb: 2 }}>
               Create Account
             </Typography>
+
+            {resumedBanner && (
+              <Alert
+                severity="info"
+                onClose={() => setResumedBanner(false)}
+                sx={{ mb: 2 }}
+                action={
+                  <Button color="inherit" size="small" onClick={handleStartOver}>
+                    Start over
+                  </Button>
+                }
+              >
+                We saved your progress — continue where you left off.
+              </Alert>
+            )}
 
             {/* Role toggle */}
             {step === 0 && (
@@ -298,9 +422,20 @@ export default function SignUp() {
                       </IconButton>
                     </InputAdornment>
                   ) }} />
-                <PasswordStrength password={password} />
-                <TextField fullWidth label="Confirm password" type="password" value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)} sx={{ mb: 2, mt: 1.5 }} required />
+                <PasswordStrengthChecklist password={password} context={{ email }} />
+
+                <TextField
+                  fullWidth
+                  label="Confirm password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  sx={{ mb: 2, mt: 1.5 }}
+                  required
+                  helperText="Please re-type your password — paste is disabled on this field."
+                  {...noPasteProps()}
+                />
+
                 <FormControlLabel control={<Checkbox checked={agreed}
                   onChange={(e) => setAgreed(e.target.checked)} size="small" />}
                   label={<Typography variant="body2">I agree to the Terms & Conditions and Privacy Policy</Typography>}
@@ -316,6 +451,10 @@ export default function SignUp() {
               <>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   We sent a 6-digit code to {email}. Enter it below to verify your email.
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                  The code expires in 30 minutes. If you close the tab, you can return to this page
+                  and pick up where you left off.
                 </Typography>
                 {devCode && (
                   <Alert severity="info" sx={{ mb: 2 }}>
@@ -396,7 +535,8 @@ export default function SignUp() {
                   helperText="Required for tutor verification" sx={{ mb: 2 }} required />
                 <TextField fullWidth label="Subjects you teach" value={subjects}
                   onChange={(e) => setSubjects(e.target.value)}
-                  helperText="Comma separated, e.g. Mathematics, Physics, Calculus" sx={{ mb: 2 }} required />
+                  helperText="Comma separated, e.g. Mathematics, Physics, Computer Science"
+                  sx={{ mb: 2 }} required />
                 <Button fullWidth variant="contained" size="large" onClick={handleTutorStep3} disabled={loading}>
                   Continue
                 </Button>
@@ -406,105 +546,88 @@ export default function SignUp() {
             {/* Tutor Step 4 */}
             {step === 4 && role === 'tutor' && (
               <>
-                <TextField fullWidth label="Hourly rate (£)" type="number" value={hourlyRate}
-                  onChange={(e) => setHourlyRate(e.target.value)} sx={{ mb: 2 }} required />
-                <TextField fullWidth label="Years of experience" type="number" value={experience}
-                  onChange={(e) => setExperience(e.target.value)} sx={{ mb: 2 }} required />
-                <TextField fullWidth label="Personal statement / motivation" multiline rows={4}
-                  value={personalStatement} onChange={(e) => setPersonalStatement(e.target.value)}
-                  helperText="Tell students why they should choose you" sx={{ mb: 2 }} />
+                <TextField fullWidth type="number" label="Hourly rate (£)" value={hourlyRate}
+                  onChange={(e) => setHourlyRate(e.target.value)} sx={{ mb: 2 }} required
+                  inputProps={{ min: 0, step: 0.5 }} />
+                <TextField fullWidth type="number" label="Years of experience" value={experience}
+                  onChange={(e) => setExperience(e.target.value)} sx={{ mb: 2 }} required
+                  inputProps={{ min: 0 }} />
+                <TextField fullWidth multiline rows={4} label="Personal statement (optional)"
+                  value={personalStatement}
+                  onChange={(e) => setPersonalStatement(e.target.value)}
+                  helperText="Briefly describe your teaching style and what students can expect."
+                  sx={{ mb: 2 }} />
                 <Button fullWidth variant="contained" size="large" onClick={handleTutorStep4} disabled={loading}>
                   Continue
                 </Button>
               </>
             )}
 
-            {/* Tutor Step 5: Documents (REPLACED — no more "upload later" placeholder) */}
+            {/* Tutor Step 5: Documents */}
             {step === 5 && role === 'tutor' && (
               <>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Upload up to {MAX_DOCS} verification documents (qualifications, DBS check, photo ID, etc.).
-                  Max {MAX_SIZE_MB}MB per file. PDF, JPG, or PNG only.
+                  Upload up to {MAX_DOCS} verification documents (ID, qualifications, DBS). PDF/JPG/PNG, ≤ {MAX_SIZE_MB}MB each.
                 </Typography>
-
-                {/* Drop zone */}
                 <Box
+                  onDragOver={onDragOver}
+                  onDragLeave={onDragLeave}
+                  onDrop={onDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                  onDragLeave={() => setDragActive(false)}
-                  onDrop={handleDrop}
                   sx={{
                     border: '2px dashed',
                     borderColor: dragActive ? 'primary.main' : 'divider',
-                    bgcolor: dragActive ? 'action.hover' : 'background.default',
                     borderRadius: 2,
-                    p: 4,
+                    p: 3,
                     textAlign: 'center',
                     cursor: 'pointer',
                     mb: 2,
-                    transition: 'all 0.2s',
-                    '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' },
+                    bgcolor: dragActive ? 'action.hover' : 'transparent',
                   }}
                 >
                   <CloudUpload sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
-                  <Typography>Click to browse or drag files here</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {documents.length} / {MAX_DOCS} uploaded
-                  </Typography>
+                  <Typography>Drag & drop files or click to browse</Typography>
                   <input
                     ref={fileInputRef}
                     type="file"
                     multiple
+                    hidden
                     accept=".pdf,.jpg,.jpeg,.png"
-                    onChange={handleFileInputChange}
-                    style={{ display: 'none' }}
+                    onChange={(e) => acceptFiles(e.target.files)}
                   />
                 </Box>
 
-                {/* File list */}
-                {documents.length > 0 && (
-                  <Stack spacing={1} sx={{ mb: 2 }}>
-                    {documents.map((d, i) => (
-                      <Card key={i} variant="outlined">
-                        <CardContent sx={{ py: 1.5, px: 2, display: 'flex', alignItems: 'center', gap: 1.5,
-                          '&:last-child': { pb: 1.5 } }}>
-                          <InsertDriveFile color="primary" />
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography variant="body2" noWrap>{d.file.name}</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {(d.file.size / 1024 / 1024).toFixed(2)} MB
-                            </Typography>
-                          </Box>
-                          <Select
-                            size="small"
-                            value={d.type}
-                            onChange={(e) => updateDocType(i, e.target.value)}
-                            sx={{ minWidth: 140 }}
-                          >
-                            <MenuItem value="qualification">Qualification</MenuItem>
-                            <MenuItem value="photo_id">Photo ID</MenuItem>
-                            <MenuItem value="dbs">DBS Certificate</MenuItem>
-                            <MenuItem value="other">Other</MenuItem>
-                          </Select>
-                          <IconButton size="small" onClick={() => removeDoc(i)}>
-                            <Close fontSize="small" />
-                          </IconButton>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </Stack>
-                )}
+                <Stack spacing={1} sx={{ mb: 2 }}>
+                  {documents.map((d, i) => (
+                    <Card variant="outlined" key={i}>
+                      <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                        <InsertDriveFile sx={{ color: 'text.secondary' }} />
+                        <Typography variant="body2" sx={{ flex: 1 }}>{d.file.name}</Typography>
+                        <TextField
+                          select size="small" value={d.type}
+                          onChange={(e) => {
+                            const next = [...documents];
+                            next[i] = { ...next[i], type: e.target.value };
+                            setDocuments(next);
+                          }}
+                        >
+                          <MenuItem value="photo_id">Photo ID</MenuItem>
+                          <MenuItem value="qualification">Qualification</MenuItem>
+                          <MenuItem value="dbs">DBS</MenuItem>
+                          <MenuItem value="other">Other</MenuItem>
+                        </TextField>
+                        <IconButton size="small" onClick={() => {
+                          setDocuments(documents.filter((_, j) => j !== i));
+                        }}>
+                          <Close fontSize="small" />
+                        </IconButton>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Stack>
 
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  Your profile will be reviewed by our admin team. You'll receive a notification when it's approved.
-                </Alert>
-
-                <Button
-                  fullWidth variant="contained" size="large"
-                  onClick={handleTutorStep5}
-                  disabled={loading || documents.length === 0}
-                >
-                  {loading ? 'Submitting...' : 'Submit for Review'}
+                <Button fullWidth variant="contained" size="large" onClick={handleTutorStep5} disabled={loading}>
+                  {loading ? 'Submitting...' : 'Submit for Verification'}
                 </Button>
               </>
             )}

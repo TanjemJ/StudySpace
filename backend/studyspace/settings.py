@@ -75,10 +75,15 @@ DATABASES = {
 AUTH_USER_MODEL = 'accounts.User'
 
 AUTH_PASSWORD_VALIDATORS = [
+    # Django's built-ins (keep these — they catch edge cases we don't)
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 8}},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+     'OPTIONS': {'min_length': 8}},
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+    # StudySpace custom validator: uppercase / lowercase / digit / symbol /
+    # not containing email/name.
+    {'NAME': 'accounts.password_validators.StudySpacePasswordValidator'},
 ]
 
 LANGUAGE_CODE = 'en-gb'

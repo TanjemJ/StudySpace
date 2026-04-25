@@ -1,20 +1,21 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { ThemeProvider, CssBaseline } from '@mui/material';
 import App from './App';
-import theme from './theme';
 import { AuthProvider } from './contexts/AuthContext';
+import { AccessibilityProvider } from './contexts/AccessibilityContext';
+
+// Note: ThemeProvider + CssBaseline are now owned by AccessibilityProvider
+// (so the theme reacts to the user's text_size / high_contrast settings).
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <AuthProvider>
+      <AuthProvider>
+        <AccessibilityProvider>
           <App />
-        </AuthProvider>
-      </ThemeProvider>
+        </AccessibilityProvider>
+      </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

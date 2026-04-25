@@ -337,13 +337,29 @@ class UpdateAccessibilityView(views.APIView):
     """Update accessibility preferences — available to ALL user roles."""
     permission_classes = [permissions.IsAuthenticated]
 
+    # Fields a client is allowed to write. Any other key in request.data
+    # is silently ignored so no one can smuggle writes to arbitrary User fields.
+    ALLOWED_FIELDS = {
+        'text_size',
+        'high_contrast',
+        'reduced_motion',
+        # NEW — added 2026-04-24
+        'underline_links',
+        'dyslexia_font',
+        'focus_ring_boost',
+    }
+
     def post(self, request):
         user = request.user
-        for field in ['text_size', 'high_contrast', 'reduced_motion']:
+        for field in self.ALLOWED_FIELDS:
             if field in request.data:
                 setattr(user, field, request.data[field])
         user.save()
-        return Response({'message': 'Accessibility settings updated.', 'user': _get_full_user_data(user)})
+        return Response({
+            'message': 'Accessibility settings updated.',
+            'user': _get_full_user_data(user),
+        })
+
 
 
 class UpdateNotificationPrefsView(views.APIView):

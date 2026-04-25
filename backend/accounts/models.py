@@ -32,6 +32,12 @@ class User(AbstractUser):
                                            ('large', 'Large'), ('xl', 'Extra Large')])
     high_contrast = models.BooleanField(default=False)
     reduced_motion = models.BooleanField(default=False)
+    underline_links = models.BooleanField(default=False,
+                                          help_text="Always underline links for easier scanning.")
+    dyslexia_font = models.BooleanField(default=False,
+                                         help_text="Use a dyslexia-friendly font across the site.")
+    focus_ring_boost = models.BooleanField(default=False,
+                                            help_text="Stronger focus outlines on keyboard tab navigation.")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -55,8 +61,42 @@ class User(AbstractUser):
         return self.last_display_name_change + timezone.timedelta(days=90)
 
 
+class PendingRegistration(models.Model):
+    """
+    Holds an in-flight signup BEFORE the email code is verified.
+    See views.py for the full flow. TTL is 30 minutes.
+    """
+    TTL_MINUTES = 30
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(unique=True)
+    hashed_password = models.CharField(max_length=256)
+    role = models.CharField(max_length=10, choices=User.Role.choices, default=User.Role.STUDENT)
+    code = models.CharField(max_length=6)
+    attempts = models.PositiveSmallIntegerField(default=0,
+                                                 help_text="Number of failed verification attempts.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"PendingRegistration<{self.email}>"
+
+    @property
+    def is_expired(self):
+        return timezone.now() > self.created_at + timezone.timedelta(minutes=self.TTL_MINUTES)
+
+    @staticmethod
+    def generate_code():
+        return ''.join(random.choices(string.digits, k=6))
+
+
 class EmailVerificationCode(models.Model):
- 
     """Stores 6-digit codes sent to users during registration and verification flows."""
 
     class Purpose(models.TextChoices):
@@ -107,7 +147,7 @@ class StudentProfile(models.Model):
 
     def __str__(self):
         return f"Student: {self.user.display_name}"
-    
+
     @property
     def university_verification_active(self):
         return bool(
@@ -121,7 +161,6 @@ class StudentProfile(models.Model):
         if not self.university_verified_at:
             return True
         return timezone.now() >= self.university_verified_at + timezone.timedelta(days=30)
-
 
 
 class TutorProfile(models.Model):
@@ -145,6 +184,15 @@ class TutorProfile(models.Model):
     university_verified = models.BooleanField(default=False)
     university_verified_at = models.DateTimeField(null=True, blank=True)
 
+    # Approximate location for in-person bookings (added 2026-04-25).
+    # Public — shown on the tutor's profile so students can gauge proximity.
+    # Deliberately NOT a precise address.
+    location_city = models.CharField(max_length=100, blank=True,
+                                      help_text="City or town the tutor is based in (approximate, public).")
+    location_postcode_area = models.CharField(max_length=10, blank=True,
+                                               help_text="UK postcode area, e.g. 'SE1' or 'EC2A'. "
+                                                         "First half only — never the full postcode.")
+
     # Verification
     verification_status = models.CharField(
         max_length=20, choices=VerificationStatus.choices, default=VerificationStatus.PENDING
@@ -162,7 +210,7 @@ class TutorProfile(models.Model):
 
     def __str__(self):
         return f"Tutor: {self.user.display_name} ({self.verification_status})"
-    
+
     @property
     def university_verification_active(self):
         return bool(
@@ -176,7 +224,6 @@ class TutorProfile(models.Model):
         if not self.university_verified_at:
             return True
         return timezone.now() >= self.university_verified_at + timezone.timedelta(days=30)
-
 
 
 class VerificationDocument(models.Model):

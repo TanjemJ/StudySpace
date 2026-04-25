@@ -35,7 +35,16 @@ class Booking(models.Model):
     class SessionType(models.TextChoices):
         VIDEO = 'video', 'Video Call'
         IN_PERSON = 'in_person', 'In Person'
-        CHAT = 'chat', 'Chat'
+        # 'chat' is kept ONLY so legacy bookings keep validating; the UI
+        # labels existing chat bookings as "Other" and removes the option
+        # from new flows. Don't expose it to new bookings.
+        CHAT = 'chat', 'Chat (legacy)'
+        OTHER = 'other', 'Other'
+
+    class VideoPlatform(models.TextChoices):
+        GOOGLE_MEET = 'google_meet', 'Google Meet'
+        ZOOM = 'zoom', 'Zoom'
+        TEAMS = 'teams', 'Microsoft Teams'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='student_bookings')
@@ -44,6 +53,22 @@ class Booking(models.Model):
     subject = models.CharField(max_length=100)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     session_type = models.CharField(max_length=20, choices=SessionType.choices, default=SessionType.VIDEO)
+
+    # New fields (added 2026-04-25):
+    # - video_platform: only meaningful when session_type='video'.
+    # - location_suggestion: only meaningful when session_type='in_person'. Tutor
+    #   makes the final call on actual location.
+    video_platform = models.CharField(
+        max_length=20, blank=True, choices=VideoPlatform.choices,
+        help_text="Which video platform this session will use. "
+                  "Only meaningful when session_type='video'.",
+    )
+    location_suggestion = models.CharField(
+        max_length=200, blank=True,
+        help_text="Student's suggested location for an in-person session. "
+                  "The tutor decides the final location.",
+    )
+
     student_note = models.TextField(blank=True, max_length=500)
     tutor_note = models.TextField(blank=True, max_length=500)
     session_link = models.URLField(blank=True)
@@ -69,12 +94,8 @@ class Booking(models.Model):
 
 class BookingChangeRequest(models.Model):
     """
-    A structured change request on an existing booking.
-
-    Either party can propose a change to date/time/session_type. The other
-    party sees a diff of current vs proposed and accepts or declines.
-    An accepted change rewrites the booking (and moves the slot if the
-    time changed).
+    Either party can propose a change to date/time/session_type/platform/location.
+    The other party sees a diff of current vs proposed and accepts or declines.
     """
 
     class RequestedBy(models.TextChoices):
@@ -100,6 +121,12 @@ class BookingChangeRequest(models.Model):
         max_length=20, blank=True,
         choices=Booking.SessionType.choices,
     )
+    # New (2026-04-25): platform / location can also be change-requested.
+    proposed_video_platform = models.CharField(
+        max_length=20, blank=True,
+        choices=Booking.VideoPlatform.choices,
+    )
+    proposed_location_suggestion = models.CharField(max_length=200, blank=True)
 
     message = models.TextField(blank=True, max_length=500)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -114,13 +141,7 @@ class BookingChangeRequest(models.Model):
 
 
 class BookingDocument(models.Model):
-    """
-    File attachment on a booking.
-
-    Either student or tutor can upload up to N documents. Both sides see all
-    documents on the booking. Documents can be deleted by their uploader
-    while the booking is not yet completed.
-    """
+    """File attachment on a booking. Either side can upload."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='documents')
     uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='+')

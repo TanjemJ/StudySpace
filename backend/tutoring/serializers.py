@@ -51,15 +51,20 @@ class BookingChangeRequestSerializer(serializers.ModelSerializer):
     current_start_time = serializers.TimeField(source='booking.slot.start_time', read_only=True)
     current_end_time = serializers.TimeField(source='booking.slot.end_time', read_only=True)
     current_session_type = serializers.CharField(source='booking.session_type', read_only=True)
+    current_video_platform = serializers.CharField(source='booking.video_platform', read_only=True)
+    current_location_suggestion = serializers.CharField(source='booking.location_suggestion', read_only=True)
 
     class Meta:
         model = BookingChangeRequest
         fields = [
             'id', 'booking', 'requested_by', 'requested_by_name',
             'proposed_date', 'proposed_start_time', 'proposed_end_time',
-            'proposed_session_type', 'message', 'status',
+            'proposed_session_type',
+            'proposed_video_platform', 'proposed_location_suggestion',
+            'message', 'status',
             'current_date', 'current_start_time', 'current_end_time',
             'current_session_type',
+            'current_video_platform', 'current_location_suggestion',
             'created_at', 'resolved_at',
         ]
         read_only_fields = ['id', 'status', 'created_at', 'resolved_at']
@@ -137,10 +142,32 @@ class BookingSerializer(serializers.ModelSerializer):
 class BookingCreateSerializer(serializers.Serializer):
     slot_id = serializers.UUIDField()
     subject = serializers.CharField(max_length=100)
+    # New flow: only video / in_person are valid for new bookings (chat is legacy).
     session_type = serializers.ChoiceField(
-        choices=Booking.SessionType.choices, required=False,
+        choices=[('video', 'Video Call'), ('in_person', 'In Person')],
+        required=False,
     )
     student_note = serializers.CharField(max_length=500, allow_blank=True, required=False)
+    # New (2026-04-25): platform / location collected at booking time.
+    video_platform = serializers.ChoiceField(
+        choices=Booking.VideoPlatform.choices,
+        required=False, allow_blank=True,
+    )
+    location_suggestion = serializers.CharField(
+        max_length=200, required=False, allow_blank=True,
+    )
+
+    def validate(self, data):
+        """Cross-field validation tied to session_type."""
+        session_type = data.get('session_type', 'video')
+        if session_type == 'video':
+            # Platform is optional at booking time — student may want the tutor
+            # to choose. But strip a stray location.
+            data['location_suggestion'] = ''
+        elif session_type == 'in_person':
+            # Strip any video platform that snuck in.
+            data['video_platform'] = ''
+        return data
 
 
 class ReviewCreateSerializer(serializers.Serializer):

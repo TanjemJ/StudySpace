@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
+import { evaluatePassword, noPasteProps } from '../utils/passwordRules';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 import {
   Container, Typography, Box, Card, CardContent, TextField, Button, Stack,
   Avatar, Tabs, Tab, Switch, FormControlLabel, Alert, Divider, IconButton,
@@ -12,6 +14,7 @@ import {
 import {
   Person, Lock, Notifications, Accessibility, Shield, PhotoCamera,
   Delete, Save, Visibility, VisibilityOff, School, Warning,
+  CheckCircle, Cancel as CancelIcon,
 } from '@mui/icons-material';
 
 function TabPanel({ children, value, index }) {
@@ -69,6 +72,12 @@ export default function Settings() {
   const [textSize, setTextSize] = useState('medium');
   const [highContrast, setHighContrast] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  // New accessibility prefs (added 2026-04-24)
+  const [underlineLinks, setUnderlineLinks] = useState(false);
+  const [dyslexiaFont, setDyslexiaFont] = useState(false);
+  const [focusRingBoost, setFocusRingBoost] = useState(false);
+  // Live preview while the user toggles — applied without saving to the server.
+  const { applyPreview, clearPreview } = useAccessibility();
 
   // Delete account
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -89,6 +98,10 @@ export default function Settings() {
     setTextSize(user.text_size || 'medium');
     setHighContrast(user.high_contrast || false);
     setReducedMotion(user.reduced_motion || false);
+
+    setUnderlineLinks(user.underline_links || false);
+    setDyslexiaFont(user.dyslexia_font || false);
+    setFocusRingBoost(user.focus_ring_boost || false);
 
     if (user.student_profile) {
       setUniversity(user.student_profile.university || '');
@@ -239,8 +252,14 @@ export default function Settings() {
   const handleSaveAccessibility = async () => {
     try {
       await api.post('/auth/settings/accessibility/', {
-        text_size: textSize, high_contrast: highContrast, reduced_motion: reducedMotion,
+        text_size: textSize,
+        high_contrast: highContrast,
+        reduced_motion: reducedMotion,
+        underline_links: underlineLinks,
+        dyslexia_font: dyslexiaFont,
+        focus_ring_boost: focusRingBoost,
       });
+      clearPreview();           
       await fetchFullProfile();
       showMsg('Accessibility settings updated.');
     } catch { showMsg('Failed to save.', true); }
@@ -257,17 +276,6 @@ export default function Settings() {
       setDeleteOpen(false);
     }
   };
-
-  const pwScore = (() => {
-    let s = 0;
-    if (newPw.length >= 8) s++;
-    if (newPw.length >= 12) s++;
-    if (/[A-Z]/.test(newPw)) s++;
-    if (/[a-z]/.test(newPw)) s++;
-    if (/\d/.test(newPw)) s++;
-    if (/[^A-Za-z0-9]/.test(newPw)) s++;
-    return s;
-  })();
 
   if (!user) return null;
 
@@ -646,27 +654,111 @@ export default function Settings() {
             <Divider sx={{ my: 3 }} />
 
             <Typography variant="h4" sx={{ mb: 2 }}>Change Password</Typography>
-            <TextField fullWidth label="Current password" type={showCurrentPw ? 'text' : 'password'}
-              value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} sx={{ mb: 2 }}
-              InputProps={{ endAdornment: <InputAdornment position="end"><IconButton size="small" onClick={() => setShowCurrentPw(!showCurrentPw)}>{showCurrentPw ? <VisibilityOff /> : <Visibility />}</IconButton></InputAdornment> }} />
-            <TextField fullWidth label="New password" type={showNewPw ? 'text' : 'password'}
-              value={newPw} onChange={(e) => setNewPw(e.target.value)} sx={{ mb: 0.5 }}
-              InputProps={{ endAdornment: <InputAdornment position="end"><IconButton size="small" onClick={() => setShowNewPw(!showNewPw)}>{showNewPw ? <VisibilityOff /> : <Visibility />}</IconButton></InputAdornment> }} />
-            {newPw && (
-              <Box sx={{ mb: 1.5 }}>
-                <LinearProgress variant="determinate" value={(pwScore / 6) * 100}
-                  color={pwScore < 3 ? 'error' : pwScore < 5 ? 'warning' : 'success'} sx={{ height: 6, borderRadius: 3 }} />
-                <Typography variant="caption" color={pwScore < 3 ? 'error.main' : pwScore < 5 ? 'warning.main' : 'success.main'}>
-                  {pwScore < 3 ? 'Weak' : pwScore < 5 ? 'Fair' : 'Strong'}
-                </Typography>
-              </Box>
-            )}
-            <TextField fullWidth label="Confirm new password" type="password"
-              value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} sx={{ mb: 2 }} />
-            <Button variant="contained" onClick={handleChangePassword}
-              disabled={!currentPw || !newPw || newPw !== confirmPw || loading}>
+
+            <TextField
+              fullWidth
+              label="Current password"
+              type={showCurrentPw ? 'text' : 'password'}
+              value={currentPw}
+              onChange={(e) => setCurrentPw(e.target.value)}
+              sx={{ mb: 2 }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setShowCurrentPw(!showCurrentPw)}>
+                      {showCurrentPw ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            <TextField
+              fullWidth
+              label="New password"
+              type={showNewPw ? 'text' : 'password'}
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              sx={{ mb: 0.5 }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setShowNewPw(!showNewPw)}>
+                      {showNewPw ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            {/* Live rule checklist + strength meter (same logic as SignUp). */}
+            {newPw && (() => {
+              const ev = evaluatePassword(newPw, {
+                email: user.email,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                displayName: user.display_name,
+              });
+              return (
+                <Box sx={{ mb: 1.5, mt: 0.5 }}>
+                  <LinearProgress
+                    variant="determinate"
+                    value={Math.min(100, Math.round((ev.score / 7) * 100))}
+                    color={ev.color}
+                    sx={{ height: 6, borderRadius: 3 }}
+                  />
+                  <Typography variant="caption" sx={{ color: `${ev.color}.main`, fontWeight: 600 }}>
+                    {ev.label}
+                  </Typography>
+                  <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+                    {ev.results.map((r) => (
+                      <Box key={r.key} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        {r.pass
+                          ? <CheckCircle sx={{ fontSize: 14, color: 'success.main' }} />
+                          : <CancelIcon sx={{ fontSize: 14, color: 'text.disabled' }} />}
+                        <Typography
+                          variant="caption"
+                          sx={{ color: r.pass ? 'success.main' : 'text.secondary' }}
+                        >
+                          {r.label}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Box>
+              );
+            })()}
+
+            <TextField
+              fullWidth
+              label="Confirm new password"
+              type="password"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value)}
+              sx={{ mb: 2, mt: 1.5 }}
+              helperText="Please re-type your new password — paste is disabled on this field."
+              {...noPasteProps()}
+            />
+
+            <Button
+              variant="contained"
+              onClick={handleChangePassword}
+              disabled={
+                !currentPw ||
+                !newPw ||
+                newPw !== confirmPw ||
+                !evaluatePassword(newPw, {
+                  email: user.email,
+                  firstName: user.first_name,
+                  lastName: user.last_name,
+                  displayName: user.display_name,
+                }).allPass ||
+                loading
+              }
+            >
               Change Password
             </Button>
+
           </TabPanel>
 
           {/* ===== NOTIFICATIONS TAB ===== */}
@@ -691,11 +783,21 @@ export default function Settings() {
           <TabPanel value={tab} index={3}>
             <Typography variant="h4" sx={{ mb: 2 }}>Accessibility Preferences</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Customise your StudySpace experience to suit your needs. These settings apply across the entire platform.
+              Customise your StudySpace experience. Changes preview live as you toggle —
+              click <strong>Save</strong> to keep them.
             </Typography>
 
             <Typography variant="h5" sx={{ mb: 1 }}>Text Size</Typography>
-            <ToggleButtonGroup value={textSize} exclusive onChange={(_, v) => v && setTextSize(v)} sx={{ mb: 3 }}>
+            <ToggleButtonGroup
+              value={textSize}
+              exclusive
+              onChange={(_, v) => {
+                if (!v) return;
+                setTextSize(v);
+                applyPreview({ textSize: v });
+              }}
+              sx={{ mb: 3 }}
+            >
               <ToggleButton value="small"><Typography sx={{ fontSize: 12 }}>Small</Typography></ToggleButton>
               <ToggleButton value="medium"><Typography sx={{ fontSize: 14 }}>Medium</Typography></ToggleButton>
               <ToggleButton value="large"><Typography sx={{ fontSize: 18 }}>Large</Typography></ToggleButton>
@@ -704,12 +806,100 @@ export default function Settings() {
 
             <Stack spacing={2}>
               <FormControlLabel
-                control={<Switch checked={highContrast} onChange={(e) => setHighContrast(e.target.checked)} />}
-                label={<Box><Typography>High contrast mode</Typography><Typography variant="caption" color="text.secondary">Increases contrast for better readability.</Typography></Box>}
+                control={
+                  <Switch
+                    checked={highContrast}
+                    onChange={(e) => {
+                      setHighContrast(e.target.checked);
+                      applyPreview({ highContrast: e.target.checked });
+                    }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography>High contrast mode</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Increases contrast for better readability.
+                    </Typography>
+                  </Box>
+                }
               />
               <FormControlLabel
-                control={<Switch checked={reducedMotion} onChange={(e) => setReducedMotion(e.target.checked)} />}
-                label={<Box><Typography>Reduced motion</Typography><Typography variant="caption" color="text.secondary">Disables animations and transitions.</Typography></Box>}
+                control={
+                  <Switch
+                    checked={reducedMotion}
+                    onChange={(e) => {
+                      setReducedMotion(e.target.checked);
+                      applyPreview({ reducedMotion: e.target.checked });
+                    }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography>Reduced motion</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Disables animations and transitions.
+                    </Typography>
+                  </Box>
+                }
+              />
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={underlineLinks}
+                    onChange={(e) => {
+                      setUnderlineLinks(e.target.checked);
+                      applyPreview({ underlineLinks: e.target.checked });
+                    }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography>Underline all links</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Makes links easier to spot in text.
+                    </Typography>
+                  </Box>
+                }
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={dyslexiaFont}
+                    onChange={(e) => {
+                      setDyslexiaFont(e.target.checked);
+                      applyPreview({ dyslexiaFont: e.target.checked });
+                    }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography>Dyslexia-friendly font</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Switches to a font designed for readers with dyslexia.
+                    </Typography>
+                  </Box>
+                }
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={focusRingBoost}
+                    onChange={(e) => {
+                      setFocusRingBoost(e.target.checked);
+                      applyPreview({ focusRingBoost: e.target.checked });
+                    }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography>Stronger focus outlines</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Thicker, higher-contrast outline when navigating with the keyboard.
+                    </Typography>
+                  </Box>
+                }
               />
             </Stack>
 

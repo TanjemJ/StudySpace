@@ -158,6 +158,9 @@ class BookingCreateView(views.APIView):
             slot=slot,
             subject=data['subject'],
             session_type=data.get('session_type', 'video'),
+            # New (2026-04-25):
+            video_platform=data.get('video_platform', ''),
+            location_suggestion=data.get('location_suggestion', ''),
             student_note=data.get('student_note', ''),
             price=slot.tutor.hourly_rate,
             status=Booking.Status.PENDING,
@@ -575,14 +578,12 @@ class BookingChangeRequestActionView(views.APIView):
 
 
 def _restore_booking_status(booking):
-    """When a change is declined/withdrawn, revert CHANGE_REQUESTED -> PENDING."""
     if booking.status == Booking.Status.CHANGE_REQUESTED:
         booking.status = Booking.Status.PENDING
         booking.save()
 
 
 def _apply_change_request(cr):
-    """Rewrite the booking to the proposed values. Move the slot if needed."""
     booking = cr.booking
     slot = booking.slot
 
@@ -621,6 +622,11 @@ def _apply_change_request(cr):
 
     if new_type != booking.session_type:
         booking.session_type = new_type
+
+    if cr.proposed_video_platform:
+        booking.video_platform = cr.proposed_video_platform
+    if cr.proposed_location_suggestion:
+        booking.location_suggestion = cr.proposed_location_suggestion
 
     # Restore status: CHANGE_REQUESTED -> PENDING or CONFIRMED depending on prior
     if booking.status == Booking.Status.CHANGE_REQUESTED:
