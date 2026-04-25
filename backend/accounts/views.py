@@ -343,10 +343,13 @@ class RegisterStep3StudentView(views.APIView):
 
         profile.save()
 
+        user_data = UserSerializer(user).data
+        user_data['student_profile'] = StudentProfileSerializer(profile).data
+
         tokens = get_tokens_for_user(user)
         return Response({
             'message': 'Registration complete!',
-            'user': UserSerializer(user).data,
+            'user': user_data,
             'tokens': tokens,
         })
 

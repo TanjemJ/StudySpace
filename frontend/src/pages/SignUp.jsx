@@ -97,7 +97,7 @@ const ALLOWED_EXTS = /\.(pdf|jpg|jpeg|png)$/i;
 
 export default function SignUp() {
   const navigate = useNavigate();
-  const { updateUser } = useAuth();
+  const { updateUser, fetchFullProfile } = useAuth();
 
   const [role, setRole] = useState('student');
   const [step, setStep] = useState(0);
@@ -181,10 +181,11 @@ export default function SignUp() {
     });
   }, [email, role, step, registrationId, userId]);
 
-  const finishSignup = (res) => {
+  const finishSignup = async (res) => {
     clearSessionState();
     localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
     updateUser(res.data.user);
+    await fetchFullProfile();
     navigate('/dashboard');
   };
 
@@ -268,7 +269,7 @@ export default function SignUp() {
         course,
         year_of_study: yearOfStudy ? parseInt(yearOfStudy, 10) : null,
       });
-      finishSignup(res);
+      await finishSignup(res);
     } catch {
       setError('Something went wrong.');
     } finally { setLoading(false); }
@@ -335,7 +336,7 @@ export default function SignUp() {
       const res = await api.post('/auth/register/step5/tutor/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      finishSignup(res);
+      await finishSignup(res);
     } catch (err) {
       setError(err.response?.data?.error || 'Upload failed.');
     } finally { setLoading(false); }
