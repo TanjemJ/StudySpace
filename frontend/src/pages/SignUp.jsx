@@ -11,12 +11,9 @@ import {
   Visibility, VisibilityOff, Person, School, CloudUpload, InsertDriveFile, Close,
   CheckCircle, Cancel as CancelIcon,
 } from '@mui/icons-material';
-import { evaluatePassword, PASSWORD_RULES, noPasteProps } from '../utils/passwordRules';
+import { evaluatePassword, noPasteProps } from '../utils/passwordRules';
 
-// ---- Session resume ------------------------------------------------------
 
-// Persist just enough to rehydrate after a page refresh — NOT localStorage
-// (clears on browser close).
 const SESSION_KEY = 'studyspace_signup_state';
 
 function loadSessionState() {
@@ -86,7 +83,7 @@ function PasswordStrengthChecklist({ password, context }) {
 // ---- Step labels + upload config ----------------------------------------
 
 const studentSteps = ['Account', 'Verify Email', 'Personal Info', 'University (Optional)'];
-const tutorSteps = ['Account', 'Verify Email', 'Personal Info', 'Verification', 'Rate & Experience', 'Documents'];
+const tutorSteps = ['Account', 'Verify Email', 'Personal Info', 'Verification', 'Rate, Experience & Location', 'Documents'];
 
 const universities = [
   'London South Bank University', 'Kings College London', 'University College London',
@@ -94,7 +91,6 @@ const universities = [
   'University of Greenwich', 'University of Westminster', 'Other',
 ];
 
-// --- Document upload config ---
 const MAX_DOCS = 5;
 const MAX_SIZE_MB = 10;
 const ALLOWED_EXTS = /\.(pdf|jpg|jpeg|png)$/i;
@@ -140,6 +136,9 @@ export default function SignUp() {
   const [hourlyRate, setHourlyRate] = useState('');
   const [experience, setExperience] = useState('');
   const [personalStatement, setPersonalStatement] = useState('');
+  // New (2026-04-25): tutor approximate location for in-person bookings.
+  const [locationCity, setLocationCity] = useState('');
+  const [locationPostcodeArea, setLocationPostcodeArea] = useState('');
 
   // Tutor step 5 — documents
   const [documents, setDocuments] = useState([]);
@@ -153,18 +152,15 @@ export default function SignUp() {
     const saved = loadSessionState();
     if (!saved) return;
 
-    // Only resume if the saved state is specifically between step 1 (code sent)
-    // and before Step 2 userId exists (i.e., the user hasn't completed verification yet).
     if (saved.registrationId && !saved.userId) {
       setEmail(saved.email || '');
       setRole(saved.role || 'student');
       setRegistrationId(saved.registrationId);
-      setStep(1); // verification step
+      setStep(1);
       setResumedBanner(true);
       return;
     }
 
-    // Or resume mid-flow after verification (userId set, still not complete)
     if (saved.userId) {
       setEmail(saved.email || '');
       setRole(saved.role || 'student');
@@ -174,9 +170,7 @@ export default function SignUp() {
     }
   }, []);
 
-  // Persist on every relevant state change.
   useEffect(() => {
-    // Don't save if we haven't started.
     if (step === 0) return;
     saveSessionState({
       email,
@@ -214,7 +208,6 @@ export default function SignUp() {
       setDevCode(res.data.dev_code || '');
       setStep(1);
     } catch (err) {
-      // Backend might return field-specific errors from the new validator.
       const data = err.response?.data || {};
       const msg =
         (Array.isArray(data.email) && data.email[0]) ||
@@ -230,7 +223,6 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       const res = await api.post('/auth/register/verify-code/', { email, code });
-      // New backend returns user_id — we now have a real User row.
       if (res.data.user_id) setUserId(res.data.user_id);
       setStep(2);
     } catch (err) {
@@ -301,6 +293,10 @@ export default function SignUp() {
   };
 
   const handleTutorStep4 = async () => {
+    if (!locationCity.trim()) {
+      setError('Please tell us which city you\'re based in — students need this for in-person bookings.');
+      return;
+    }
     setError(''); setLoading(true);
     try {
       await api.post('/auth/register/step4/tutor/', {
@@ -308,10 +304,17 @@ export default function SignUp() {
         hourly_rate: parseFloat(hourlyRate),
         experience_years: parseInt(experience, 10),
         personal_statement: personalStatement,
+        location_city: locationCity.trim(),
+        location_postcode_area: locationPostcodeArea.trim().toUpperCase(),
       });
       setStep(5);
-    } catch {
-      setError('Failed to save rate. Please try again.');
+    } catch (err) {
+      const data = err.response?.data || {};
+      const msg =
+        (Array.isArray(data.location_city) && data.location_city[0]) ||
+        data.error ||
+        'Failed to save rate. Please try again.';
+      setError(msg);
     } finally { setLoading(false); }
   };
 
@@ -391,7 +394,6 @@ export default function SignUp() {
               </Alert>
             )}
 
-            {/* Role toggle */}
             {step === 0 && (
               <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
                 <ToggleButtonGroup value={role} exclusive onChange={(_, v) => v && setRole(v)} size="small">
@@ -543,7 +545,7 @@ export default function SignUp() {
               </>
             )}
 
-            {/* Tutor Step 4 */}
+            {/* Tutor Step 4 — rate, experience, location */}
             {step === 4 && role === 'tutor' && (
               <>
                 <TextField fullWidth type="number" label="Hourly rate (£)" value={hourlyRate}
@@ -552,13 +554,35 @@ export default function SignUp() {
                 <TextField fullWidth type="number" label="Years of experience" value={experience}
                   onChange={(e) => setExperience(e.target.value)} sx={{ mb: 2 }} required
                   inputProps={{ min: 0 }} />
-                <TextField fullWidth multiline rows={4} label="Personal statement (optional)"
+                <TextField fullWidth multiline rows={3} label="Personal statement (optional)"
                   value={personalStatement}
                   onChange={(e) => setPersonalStatement(e.target.value)}
                   helperText="Briefly describe your teaching style and what students can expect."
-                  sx={{ mb: 2 }} />
+                  sx={{ mb: 3 }} />
+
+                <Typography variant="h6" sx={{ mb: 1 }}>Approximate location</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Shown on your public profile so students can see roughly where you're based.
+                  This is approximate only — never share your full address.
+                </Typography>
+
+                <TextField
+                  fullWidth label="City / town" value={locationCity}
+                  onChange={(e) => setLocationCity(e.target.value)}
+                  placeholder="e.g. London"
+                  sx={{ mb: 2 }} required
+                />
+                <TextField
+                  fullWidth label="Postcode area (optional)" value={locationPostcodeArea}
+                  onChange={(e) => setLocationPostcodeArea(e.target.value)}
+                  placeholder="e.g. SE1"
+                  helperText="Just the first part of your UK postcode (1–4 chars). Leave blank if you're not in the UK."
+                  inputProps={{ maxLength: 10 }}
+                  sx={{ mb: 2 }}
+                />
+
                 <Button fullWidth variant="contained" size="large" onClick={handleTutorStep4} disabled={loading}>
-                  Continue
+                  {loading ? 'Saving...' : 'Continue'}
                 </Button>
               </>
             )}

@@ -43,6 +43,10 @@ export default function Settings() {
   const [hourlyRate, setHourlyRate] = useState('');
   const [experience, setExperience] = useState('');
 
+  // Tutor approximate location (added 2026-04-25)
+  const [locationCity, setLocationCity] = useState('');
+  const [locationPostcodeArea, setLocationPostcodeArea] = useState('');
+
   // University verification
   const [universityEmail, setUniversityEmail] = useState('');
   const [universityCode, setUniversityCode] = useState('');
@@ -117,6 +121,8 @@ export default function Settings() {
       setExperience(user.tutor_profile.experience_years || '');
       if (!university) setUniversity(user.tutor_profile.university || '');
       setUniversityEmail(user.tutor_profile.company_email || '');
+      setLocationCity(user.tutor_profile.location_city || '');
+      setLocationPostcodeArea(user.tutor_profile.location_postcode_area || '');
     }
   }, [user]);
 
@@ -141,6 +147,8 @@ export default function Settings() {
         data.hourly_rate = hourlyRate;
         data.experience_years = experience;
         data.university = university;
+        data.location_city = locationCity.trim();
+        data.location_postcode_area = locationPostcodeArea.trim().toUpperCase();
       }
       await api.patch('/auth/settings/profile/', data);
       await fetchFullProfile();
@@ -530,6 +538,29 @@ export default function Settings() {
                     onChange={(e) => setExperience(e.target.value)}
                   />
                 </Stack>
+
+                <Typography variant="h6" sx={{ mt: 1, mb: 1 }}>Approximate location</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Shown on your public tutor profile so students can see roughly where you're
+                  based. This is approximate only — never share your full address.
+                </Typography>
+
+                <TextField
+                  fullWidth label="City / town"
+                  value={locationCity}
+                  onChange={(e) => setLocationCity(e.target.value)}
+                  placeholder="e.g. London"
+                  sx={{ mb: 2 }}
+                />
+                <TextField
+                  fullWidth label="Postcode area (optional)"
+                  value={locationPostcodeArea}
+                  onChange={(e) => setLocationPostcodeArea(e.target.value)}
+                  placeholder="e.g. SE1"
+                  helperText="Just the first part of your UK postcode (1–4 chars). Leave blank if you're not in the UK."
+                  inputProps={{ maxLength: 10 }}
+                  sx={{ mb: 2 }}
+                />
 
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="h6" sx={{ mb: 1.5 }}>

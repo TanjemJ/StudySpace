@@ -6,7 +6,7 @@ import {
   Avatar, Button, Rating, InputAdornment, Checkbox, FormControlLabel, Slider,
   RadioGroup, Radio, Divider, Paper,
 } from '@mui/material';
-import { Search, VerifiedUser, FilterList } from '@mui/icons-material';
+import { Search, VerifiedUser, FilterList, LocationOn } from '@mui/icons-material';
 
 const SUBJECTS = [
   'Mathematics', 'Computer Science', 'Physics', 'Chemistry', 'Biology',
@@ -36,6 +36,7 @@ export default function TutorSearch() {
 
   // Filters
   const [selectedSubjects, setSelectedSubjects] = useState([]);
+  const [locationFilter, setLocationFilter] = useState('');
   const [priceRange, setPriceRange] = useState([10, 50]);
   const [minRating, setMinRating] = useState(0);
   const [availability, setAvailability] = useState([]);
@@ -79,8 +80,16 @@ export default function TutorSearch() {
       filtered = filtered.filter(t => (t.average_rating || 0) >= minRating);
     }
 
+    if (locationFilter.trim()) {
+      const q = locationFilter.toLowerCase().trim();
+      filtered = filtered.filter(t =>
+        (t.location_city || '').toLowerCase().includes(q) ||
+        (t.location_postcode_area || '').toLowerCase().includes(q)
+      );
+    }
+
     setTutors(filtered);
-  }, [search, selectedSubjects, priceRange, minRating, availability, sessionType, allTutors]);
+  }, [search, selectedSubjects, priceRange, minRating, availability, sessionType, locationFilter, allTutors]);
 
   const toggleSubject = (s) => {
     setSelectedSubjects(prev =>
@@ -101,6 +110,7 @@ export default function TutorSearch() {
     setAvailability([]);
     setSessionType('');
     setSearch('');
+    setLocationFilter('');
   };
 
   const activeFilterCount =
@@ -168,6 +178,21 @@ export default function TutorSearch() {
                   marks={[{ value: 10, label: '£10' }, { value: 50, label: '£50' }]}
                 />
               </Box>
+            </Box>
+
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Location</Typography>
+              <TextField
+                size="small" fullWidth
+                placeholder="City or postcode area"
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start"><LocationOn fontSize="small" /></InputAdornment>
+                  ),
+                }}
+              />
             </Box>
 
             <Divider sx={{ mb: 2 }} />
@@ -270,6 +295,16 @@ export default function TutorSearch() {
                         <Chip label={`+${t.subjects.length - 3}`} size="small" sx={{ height: 22, fontSize: 11 }} />
                       )}
                     </Box>
+
+                    {t.location_city && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+                        <LocationOn sx={{ fontSize: 14, color: 'text.secondary' }} />
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                          Based in {t.location_city}
+                          {t.location_postcode_area ? ` (${t.location_postcode_area})` : ''}
+                        </Typography>
+                      </Box>
+                    )}
 
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
                       <Rating value={t.average_rating} precision={0.1} size="small" readOnly />

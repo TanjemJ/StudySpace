@@ -241,6 +241,17 @@ export default function Bookings() {
                                 sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       {sessionIcon(b.session_type)} {b.subject} — {b.slot_date} at {b.slot_start?.slice(0, 5)}
                     </Typography>
+                    {(b.video_platform || b.location_suggestion) && (
+                      <Typography variant="caption" color="text.secondary"
+                                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+                        {b.session_type === 'video' && b.video_platform && (
+                          <>via {videoPlatformLabel(b.video_platform)}</>
+                        )}
+                        {b.session_type === 'in_person' && b.location_suggestion && (
+                          <>📍 {b.location_suggestion}</>
+                        )}
+                      </Typography>
+                    )}
                   </Box>
                   <Chip
                     label={statusLabel(b.status)}

@@ -73,7 +73,8 @@ class UpdateProfileView(views.APIView):
         if user.role == 'tutor' and hasattr(user, 'tutor_profile'):
             profile = user.tutor_profile
 
-            for field in ['bio', 'hourly_rate', 'experience_years', 'personal_statement']:
+            for field in ['bio', 'hourly_rate', 'experience_years', 'personal_statement',
+              'location_city', 'location_postcode_area']:
                 if field in request.data:
                     setattr(profile, field, request.data[field])
 
