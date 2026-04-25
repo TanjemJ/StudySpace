@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { GoogleLogin, GoogleOAuthProvider } from '@react-oauth/google';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import api from '../utils/api';
 import {
   Container, Card, CardContent, Typography, TextField, Button, Box, Alert,
   Divider, Stack, IconButton, InputAdornment,
@@ -9,12 +11,13 @@ import { Visibility, VisibilityOff, Google, Microsoft } from '@mui/icons-materia
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, updateUser, fetchFullProfile } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -29,6 +32,28 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setError('');
+    setLoading(true);
+
+    try {
+      const res = await api.post('/auth/google/', {
+        credential: credentialResponse.credential,
+      });
+
+      localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
+      localStorage.setItem('user', JSON.stringify(res.data.user));
+      updateUser(res.data.user);
+      await fetchFullProfile();
+      navigate('/');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Google login failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   return (
     <Box sx={{ minHeight: '80vh', display: 'flex', alignItems: 'center', bgcolor: 'background.default' }}>
@@ -67,7 +92,21 @@ export default function Login() {
 
             <Divider sx={{ my: 3 }}>or continue with</Divider>
             <Stack direction="row" spacing={2} justifyContent="center">
-              <Button variant="outlined" startIcon={<Google />} sx={{ flex: 1 }}>Google</Button>
+              {googleClientId ? (
+                <GoogleOAuthProvider clientId={googleClientId}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <GoogleLogin
+                      onSuccess={handleGoogleSuccess}
+                      onError={() => setError('Google login failed. Please try again.')}
+                      width="180"
+                    />
+                  </Box>
+                </GoogleOAuthProvider>
+              ) : (
+                <Button variant="outlined" startIcon={<Google />} sx={{ flex: 1 }} disabled>
+                  Google
+                </Button>
+              )}
               <Button variant="outlined" startIcon={<Microsoft />} sx={{ flex: 1 }}>Microsoft</Button>
             </Stack>
 

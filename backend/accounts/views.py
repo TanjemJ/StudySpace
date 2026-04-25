@@ -9,6 +9,9 @@ from django.template.loader import render_to_string
 from django.conf import settings
 import uuid
 from django.utils import timezone
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
+
 
 from .university_email_service import validate_university_email, university_email_is_verified_elsewhere
 from .models import (
@@ -464,6 +467,71 @@ class LoginView(views.APIView):
         tokens = get_tokens_for_user(user)
         return Response({
             'message': 'Login successful.',
+            'user': UserSerializer(user).data,
+            'tokens': tokens,
+        })
+
+
+class GoogleLoginView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        credential = request.data.get('credential')
+
+        if not settings.GOOGLE_OAUTH_CLIENT_ID:
+            return Response(
+                {'error': 'Google login is not configured.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if not credential:
+            return Response(
+                {'error': 'Missing Google credential.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            payload = id_token.verify_oauth2_token(
+                credential,
+                google_requests.Request(),
+                settings.GOOGLE_OAUTH_CLIENT_ID,
+            )
+        except ValueError:
+            return Response(
+                {'error': 'Invalid Google login token.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = (payload.get('email') or '').strip().lower()
+        email_verified = payload.get('email_verified')
+
+        if not email or not email_verified:
+            return Response(
+                {'error': 'Google did not return a verified email address.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'No StudySpace account exists for this Google email. Please sign up first.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if user.is_deleted:
+            return Response(
+                {'error': 'This account has been deleted.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if not user.is_email_verified:
+            user.is_email_verified = True
+            user.save(update_fields=['is_email_verified'])
+
+        tokens = get_tokens_for_user(user)
+        return Response({
+            'message': 'Google login successful.',
             'user': UserSerializer(user).data,
             'tokens': tokens,
         })
