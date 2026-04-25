@@ -1,5 +1,6 @@
 from rest_framework import generics, status, permissions, views
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q, Prefetch
 from django.utils import timezone
 from .models import ForumCategory, ForumPost, ForumReply, PostVote, Report
@@ -28,6 +29,17 @@ def _get_user_university(user):
 
     return ''
 
+def _accessible_posts_for_user(user):
+    qs = ForumPost.objects.filter(is_flagged=False)
+
+    if not (user and user.is_authenticated and user.role == 'admin'):
+        qs = qs.filter(is_deleted=False)
+
+    user_uni = _get_user_university(user)
+    if user_uni:
+        return qs.filter(Q(university='') | Q(university=user_uni))
+
+    return qs.filter(university='')
 
 
 class CategoryListView(generics.ListAPIView):
@@ -37,19 +49,21 @@ class CategoryListView(generics.ListAPIView):
     def get_queryset(self):
         qs = ForumCategory.objects.all()
         user = self.request.user
-        university = self.request.query_params.get('university', None)
-        if university:
-            qs = qs.filter(Q(university='') | Q(university=university))
-        else:
-            if user.is_authenticated:
-                user_uni = _get_user_university(user)
-                if user_uni:
-                    qs = qs.filter(Q(university='') | Q(university=user_uni))
-                else:
-                    qs = qs.filter(university='')
-            else:
-                qs = qs.filter(university='')
-        return qs
+        requested_university = self.request.query_params.get('university', None)
+        user_university = _get_user_university(user)
+
+        if requested_university and requested_university not in ('all', 'global'):
+            if requested_university == user_university:
+                return qs.filter(Q(university='') | Q(university=user_university))
+            return qs.filter(university='')
+
+        if requested_university == 'global':
+            return qs.filter(university='')
+
+        if user_university:
+            return qs.filter(Q(university='') | Q(university=user_university))
+
+        return qs.filter(university='')
 
 
 class UniversityListView(views.APIView):
@@ -77,21 +91,27 @@ class PostListView(generics.ListAPIView):
             qs = qs.filter(category_id=category)
 
         university = self.request.query_params.get('university')
+        user = self.request.user
+        user_uni = _get_user_university(user)
+
         if university:
             if university == 'all':
-                pass
-            elif university == 'global':
-                qs = qs.filter(university='')
-            else:
-                qs = qs.filter(university=university)
-        else:
-            user = self.request.user
-            if user.is_authenticated:
-                user_uni = _get_user_university(user)
                 if user_uni:
                     qs = qs.filter(Q(university='') | Q(university=user_uni))
                 else:
                     qs = qs.filter(university='')
+            elif university == 'global':
+                qs = qs.filter(university='')
+            elif university == user_uni:
+                qs = qs.filter(university=user_uni)
+            else:
+                qs = qs.filter(university='')
+        else:
+            if user_uni:
+                qs = qs.filter(Q(university='') | Q(university=user_uni))
+            else:
+                qs = qs.filter(university='')
+
 
         search = self.request.query_params.get('search')
         if search:
@@ -119,7 +139,10 @@ class PostListView(generics.ListAPIView):
 class PostDetailView(generics.RetrieveAPIView):
     serializer_class = ForumPostSerializer
     permission_classes = [permissions.AllowAny]
-    queryset = ForumPost.objects.select_related('author', 'category')
+
+    def get_queryset(self):
+        return _accessible_posts_for_user(self.request.user).select_related('author', 'category')
+
 
 
 class PostEditView(views.APIView):
@@ -212,16 +235,28 @@ class ReplyListCreateView(generics.ListCreateAPIView):
         return {'request': self.request}
 
     def get_queryset(self):
-        # Only return top-level replies; children are nested inside
+        post = _accessible_posts_for_user(self.request.user).filter(
+            id=self.kwargs['post_id']
+        ).first()
+
+        if not post:
+            return ForumReply.objects.none()
+
         return ForumReply.objects.filter(
-            post_id=self.kwargs['post_id'],
+            post=post,
             parent=None,
             is_flagged=False
         ).select_related('author').prefetch_related('children__author')
 
+
     def perform_create(self, serializer):
         from accounts.models import Notification
-        post = ForumPost.objects.get(id=self.kwargs['post_id'])
+
+        try:
+            post = _accessible_posts_for_user(self.request.user).get(id=self.kwargs['post_id'])
+        except ForumPost.DoesNotExist:
+            raise PermissionDenied('You do not have access to this post.')
+
         parent_id = self.request.data.get('parent_id')
         parent = None
         if parent_id:
@@ -296,7 +331,7 @@ class PostVoteView(views.APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            post = ForumPost.objects.get(id=post_id)
+            post = _accessible_posts_for_user(request.user).get(id=post_id)
         except ForumPost.DoesNotExist:
             return Response({'error': 'Post not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -336,8 +371,11 @@ class ReplyVoteView(views.APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            reply = ForumReply.objects.get(id=reply_id)
+            reply = ForumReply.objects.select_related('post').get(id=reply_id)
         except ForumReply.DoesNotExist:
+            return Response({'error': 'Reply not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _accessible_posts_for_user(request.user).filter(id=reply.post_id).exists():
             return Response({'error': 'Reply not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         existing = PostVote.objects.filter(user=request.user, reply=reply).first()

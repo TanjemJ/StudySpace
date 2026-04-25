@@ -28,8 +28,12 @@ export default function Forum() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('latest');
 
-  const userUniversity = user?.student_profile?.university || user?.tutor_profile?.university || '';
-  const isUniVerified = user?.student_profile?.university_verified || user?.tutor_profile?.university_verified || false;
+  const profileUniversity = user?.student_profile?.university || user?.tutor_profile?.university || '';
+  const isUniVerified = Boolean(
+    user?.student_profile?.university_verification_active ||
+    user?.tutor_profile?.university_verification_active
+  );
+  const userUniversity = isUniVerified ? profileUniversity : '';
 
   const fetchPosts = (overrides = {}) => {
     setLoading(true);
@@ -156,9 +160,9 @@ export default function Forum() {
               </Alert>
             )}
 
-            {user && userUniversity && !isUniVerified && selectedUni === 'all' && (
+            {user && profileUniversity && !isUniVerified && selectedUni === 'all' && (
               <Alert severity="info" sx={{ mb: 2 }}>
-                Verify your university email to access {uniShortName(userUniversity)}'s private forum.
+                Verify your university email to access {uniShortName(profileUniversity)}'s private forum.
               </Alert>
             )}
 

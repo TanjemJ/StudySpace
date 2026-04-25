@@ -195,7 +195,9 @@ class Command(BaseCommand):
                 user.save()
                 StudentProfile.objects.create(
                     user=user, university=uni, university_email=email,
-                    university_verified=True, course=course, year_of_study=year,
+                    university_verified=True,
+                    university_verified_at=timezone.now(),
+                    course=course, year_of_study=year,
                 )
             students.append(user)
         self.stdout.write(self.style.SUCCESS(f'  {len(students)} students'))
@@ -229,6 +231,7 @@ class Command(BaseCommand):
                     'company_email_verified': True,
                     'university': university_name,
                     'university_verified': True,
+                    'university_verified_at': timezone.now(),
                     'verification_status': 'approved',
                     'average_rating': rating,
                     'total_sessions': sessions,
@@ -236,9 +239,10 @@ class Command(BaseCommand):
                 },
             )
             # Backfill for rows created before this seed version
-            if not profile.university or not profile.university_verified:
+            if not profile.university or not profile.university_verified or not profile.university_verified_at:
                 profile.university = university_name
                 profile.university_verified = True
+                profile.university_verified_at = timezone.now()
                 profile.save()
             tutors.append(profile)
         self.stdout.write(self.style.SUCCESS(f'  {len(tutors)} tutors (rates £15-£45, ratings 3.7-4.9)'))

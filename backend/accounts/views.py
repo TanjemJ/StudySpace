@@ -312,15 +312,33 @@ class RegisterStep3StudentView(views.APIView):
         profile.course = data.get('course', '')
         profile.year_of_study = data.get('year_of_study')
 
-        auto_verify_email = user.email.lower()
-        auto_validation = validate_university_email(auto_verify_email)
+        candidate_university_email = provided_university_email or user.email.lower()
+        validation = (
+            validate_university_email(candidate_university_email)
+            if candidate_university_email
+            else {'ok': False}
+        )
 
-        if user.is_email_verified and auto_validation['ok']:
-            profile.university = auto_validation['university_name']
-            profile.university_email = auto_verify_email
+        if provided_university_email and not validation['ok']:
+            return Response(
+                {'error': validation['error']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        profile.university_email = ''
+        profile.university_verified = False
+        profile.university_verified_at = None
+
+        if (
+            user.is_email_verified
+            and candidate_university_email == user.email.lower()
+            and validation['ok']
+        ):
+            profile.university = validation['university_name']
+            profile.university_email = candidate_university_email
             profile.university_verified = True
             profile.university_verified_at = timezone.now()
-        else:
+        elif provided_university_email:
             profile.university_email = provided_university_email
 
         profile.save()
