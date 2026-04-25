@@ -8,6 +8,10 @@ from django.db import transaction
 from django.template.loader import render_to_string
 from django.conf import settings
 import uuid
+import json
+from urllib.error import URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
 from django.utils import timezone
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
@@ -472,11 +476,27 @@ class LoginView(views.APIView):
         })
 
 
+def _verify_google_access_token(access_token):
+    query = urlencode({'access_token': access_token})
+
+    try:
+        with urlopen(f'https://oauth2.googleapis.com/tokeninfo?{query}', timeout=5) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+    except (OSError, URLError, ValueError):
+        raise ValueError('Invalid Google access token.')
+
+    if payload.get('aud') != settings.GOOGLE_OAUTH_CLIENT_ID:
+        raise ValueError('Google token was not issued for this app.')
+
+    return payload
+
+
 class GoogleLoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         credential = request.data.get('credential')
+        access_token = request.data.get('access_token')
 
         if not settings.GOOGLE_OAUTH_CLIENT_ID:
             return Response(
@@ -484,28 +504,32 @@ class GoogleLoginView(views.APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        if not credential:
+        if not credential and not access_token:
             return Response(
                 {'error': 'Missing Google credential.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            payload = id_token.verify_oauth2_token(
-                credential,
-                google_requests.Request(),
-                settings.GOOGLE_OAUTH_CLIENT_ID,
-            )
+            if credential:
+                payload = id_token.verify_oauth2_token(
+                    credential,
+                    google_requests.Request(),
+                    settings.GOOGLE_OAUTH_CLIENT_ID,
+                )
+            else:
+                payload = _verify_google_access_token(access_token)
         except ValueError:
             return Response(
                 {'error': 'Invalid Google login token.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+
         email = (payload.get('email') or '').strip().lower()
         email_verified = payload.get('email_verified')
 
-        if not email or not email_verified:
+        if not email or str(email_verified).lower() != 'true':
             return Response(
                 {'error': 'Google did not return a verified email address.'},
                 status=status.HTTP_400_BAD_REQUEST,

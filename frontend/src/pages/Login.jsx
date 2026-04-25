@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GoogleLogin, GoogleOAuthProvider } from '@react-oauth/google';
+import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
@@ -8,6 +8,27 @@ import {
   Divider, Stack, IconButton, InputAdornment,
 } from '@mui/material';
 import { Visibility, VisibilityOff, Google, Microsoft } from '@mui/icons-material';
+
+function GoogleSignInButton({ disabled, onSuccess, onError }) {
+  const startGoogleLogin = useGoogleLogin({
+    onSuccess,
+    onError,
+    scope: 'openid email profile',
+  });
+
+  return (
+    <Button
+      variant="outlined"
+      startIcon={<Google />}
+      onClick={() => startGoogleLogin()}
+      disabled={disabled}
+      sx={{ flex: 1 }}
+    >
+      Google
+    </Button>
+  );
+}
+
 
 export default function Login() {
   const navigate = useNavigate();
@@ -33,13 +54,13 @@ export default function Login() {
     }
   };
 
-  const handleGoogleSuccess = async (credentialResponse) => {
+  const handleGoogleSuccess = async (tokenResponse) => {
     setError('');
     setLoading(true);
 
     try {
       const res = await api.post('/auth/google/', {
-        credential: credentialResponse.credential,
+        access_token: tokenResponse.access_token,
       });
 
       localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
@@ -94,13 +115,11 @@ export default function Login() {
             <Stack direction="row" spacing={2} justifyContent="center">
               {googleClientId ? (
                 <GoogleOAuthProvider clientId={googleClientId}>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <GoogleLogin
-                      onSuccess={handleGoogleSuccess}
-                      onError={() => setError('Google login failed. Please try again.')}
-                      width="180"
-                    />
-                  </Box>
+                  <GoogleSignInButton
+                    disabled={loading}
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => setError('Google login failed. Please try again.')}
+                  />
                 </GoogleOAuthProvider>
               ) : (
                 <Button variant="outlined" startIcon={<Google />} sx={{ flex: 1 }} disabled>
