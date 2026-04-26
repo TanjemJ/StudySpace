@@ -15,6 +15,9 @@ from urllib.request import urlopen
 from django.utils import timezone
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+from jwt import InvalidTokenError, PyJWKClient
+import jwt
+
 
 
 from .university_email_service import validate_university_email, university_email_is_verified_elsewhere
@@ -491,6 +494,30 @@ def _verify_google_access_token(access_token):
     return payload
 
 
+MICROSOFT_JWKS_URL = 'https://login.microsoftonline.com/common/discovery/v2.0/keys'
+
+def _verify_microsoft_id_token(microsoft_id_token):
+    jwks_client = PyJWKClient(MICROSOFT_JWKS_URL)
+    signing_key = jwks_client.get_signing_key_from_jwt(microsoft_id_token)
+
+    payload = jwt.decode(
+        microsoft_id_token,
+        signing_key.key,
+        algorithms=['RS256'],
+        audience=settings.MICROSOFT_CLIENT_ID,
+        options={'verify_iss': False},
+    )
+
+    tenant_id = payload.get('tid')
+    issuer = payload.get('iss')
+    expected_issuer = f'https://login.microsoftonline.com/{tenant_id}/v2.0'
+
+    if not tenant_id or issuer != expected_issuer:
+        raise InvalidTokenError('Invalid Microsoft token issuer.')
+
+    return payload
+
+
 class GoogleLoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -556,6 +583,55 @@ class GoogleLoginView(views.APIView):
         tokens = get_tokens_for_user(user)
         return Response({
             'message': 'Google login successful.',
+            'user': UserSerializer(user).data,
+            'tokens': tokens,
+        })
+
+class MicrosoftLoginView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        microsoft_id_token = request.data.get('id_token')
+
+        if not settings.MICROSOFT_CLIENT_ID:
+            return Response({'error': 'Microsoft login is not configured.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not microsoft_id_token:
+            return Response({'error': 'Missing Microsoft credential.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            payload = _verify_microsoft_id_token(microsoft_id_token)
+        except InvalidTokenError:
+            return Response({'error': 'Invalid Microsoft login token.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = (
+            payload.get('email') or
+            payload.get('preferred_username') or
+            payload.get('upn') or
+            ''
+        ).strip().lower()
+
+        if not email:
+            return Response({'error': 'Microsoft did not return an email address.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'No StudySpace account exists for this Microsoft email. Please sign up first.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if user.is_deleted:
+            return Response({'error': 'This account has been deleted.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if not user.is_email_verified:
+            user.is_email_verified = True
+            user.save(update_fields=['is_email_verified'])
+
+        tokens = get_tokens_for_user(user)
+        return Response({
+            'message': 'Microsoft login successful.',
             'user': UserSerializer(user).data,
             'tokens': tokens,
         })

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -8,6 +8,8 @@ import {
   Divider, Stack, IconButton, InputAdornment,
 } from '@mui/material';
 import { Visibility, VisibilityOff, Google, Microsoft } from '@mui/icons-material';
+import { PublicClientApplication } from '@azure/msal-browser';
+
 
 function GoogleSignInButton({ disabled, onSuccess, onError }) {
   const startGoogleLogin = useGoogleLogin({
@@ -39,6 +41,69 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const microsoftClientId = import.meta.env.VITE_MICROSOFT_CLIENT_ID;
+
+  const microsoftMsalInstance = useMemo(() => {
+    if (!microsoftClientId) return null;
+
+    return new PublicClientApplication({
+      auth: {
+        clientId: microsoftClientId,
+        authority: 'https://login.microsoftonline.com/common',
+        redirectUri: `${window.location.origin}/login`,
+        navigateToLoginRequestUrl: false,
+      },
+      cache: {
+        cacheLocation: 'sessionStorage',
+      },
+    });
+  }, [microsoftClientId]);
+
+
+  useEffect(() => {
+    if (!microsoftMsalInstance) return;
+
+    let cancelled = false;
+
+    const completeMicrosoftRedirect = async () => {
+      try {
+        await microsoftMsalInstance.initialize();
+        const loginResponse = await microsoftMsalInstance.handleRedirectPromise();
+
+        if (!loginResponse || cancelled) return;
+
+        setLoading(true);
+
+        const res = await api.post('/auth/microsoft/', {
+          id_token: loginResponse.idToken,
+        });
+
+        localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
+        localStorage.setItem('user', JSON.stringify(res.data.user));
+        updateUser(res.data.user);
+        await fetchFullProfile();
+        navigate('/');
+      } catch (err) {
+        console.error('Microsoft redirect login error:', err);
+        setError(
+          err.response?.data?.error ||
+          err.errorMessage ||
+          err.message ||
+          'Microsoft login failed.'
+        );
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    completeMicrosoftRedirect();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [microsoftMsalInstance, updateUser, fetchFullProfile, navigate]);
+
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -71,6 +136,30 @@ export default function Login() {
     } catch (err) {
       setError(err.response?.data?.error || 'Google login failed.');
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMicrosoftLogin = async () => {
+    if (!microsoftMsalInstance) return;
+
+    setError('');
+    setLoading(true);
+
+    try {
+      await microsoftMsalInstance.initialize();
+
+      await microsoftMsalInstance.loginRedirect({
+        scopes: ['openid', 'profile', 'email'],
+        prompt: 'select_account',
+      });
+    } catch (err) {
+      console.error('Microsoft login error:', err);
+      setError(
+        err.errorMessage ||
+        err.message ||
+        'Microsoft login failed.'
+      );
       setLoading(false);
     }
   };
@@ -126,7 +215,15 @@ export default function Login() {
                   Google
                 </Button>
               )}
-              <Button variant="outlined" startIcon={<Microsoft />} sx={{ flex: 1 }}>Microsoft</Button>
+              <Button
+                variant="outlined"
+                startIcon={<Microsoft />}
+                sx={{ flex: 1 }}
+                disabled={!microsoftClientId || loading}
+                onClick={handleMicrosoftLogin}
+              >
+                Microsoft
+              </Button>
             </Stack>
 
             <Typography variant="body2" textAlign="center" sx={{ mt: 3 }}>
