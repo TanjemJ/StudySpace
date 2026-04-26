@@ -21,6 +21,8 @@ import AIChat from './pages/AIChat';
 import Bookings from './pages/Bookings';
 import Settings from './pages/Settings';
 import ContactUs from './pages/ContactUs';
+import Messages from './pages/Messages';
+
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
@@ -84,6 +86,8 @@ export default function App() {
           <Route path="/forum/new" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />
           <Route path="/ai-assistant" element={<AIChat />} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
+          <Route path="/messages/:conversationId" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
           <Route path="/contact" element={<ContactUs />} />
         </Routes>
       </PageTransition>

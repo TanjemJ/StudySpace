@@ -9,7 +9,7 @@ import {
 } from '@mui/material';
 import {
   Menu as MenuIcon, Forum, SmartToy, Search,
-  Logout, Dashboard, BookOnline, Settings,
+  Logout, Dashboard, BookOnline, Message, Settings, 
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 
@@ -75,9 +75,14 @@ export default function Navbar() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {/* Dashboard button — visible for ALL roles on desktop */}
             {!isMobile && (
-              <Button size="small" onClick={() => navigate(dashboardPath)} startIcon={<Dashboard />}>
-                Dashboard
-              </Button>
+              <>
+                <Button size="small" onClick={() => navigate('/messages')} startIcon={<Message />}>
+                  Messages
+                </Button>
+                <Button size="small" onClick={() => navigate(dashboardPath)} startIcon={<Dashboard />}>
+                  Dashboard
+                </Button>
+              </>
             )}
             <NotificationDropdown />
             <Chip
@@ -94,6 +99,9 @@ export default function Navbar() {
               </MenuItem>
               <MenuItem onClick={() => { handleNav('/bookings'); setAnchorEl(null); }}>
                 <BookOnline sx={{ mr: 1, fontSize: 18 }} /> My Bookings
+              </MenuItem>
+              <MenuItem onClick={() => { handleNav('/messages'); setAnchorEl(null); }}>
+                <Message sx={{ mr: 1, fontSize: 18 }} /> Messages
               </MenuItem>
               <MenuItem onClick={() => { handleNav('/settings'); setAnchorEl(null); }}>
                 <Settings sx={{ mr: 1, fontSize: 18 }} /> Settings
@@ -132,6 +140,10 @@ export default function Navbar() {
                   <ListItem button onClick={() => handleNav(dashboardPath)}>
                     <ListItemIcon><Dashboard /></ListItemIcon>
                     <ListItemText primary="Dashboard" />
+                  </ListItem>
+                  <ListItem button onClick={() => handleNav('/messages')}>
+                    <ListItemIcon><Message /></ListItemIcon>
+                    <ListItemText primary="Messages" />
                   </ListItem>
                   <ListItem button onClick={() => handleNav('/settings')}>
                     <ListItemIcon><Settings /></ListItemIcon>

@@ -9,6 +9,8 @@ urlpatterns = [
     path('api/tutoring/', include('tutoring.urls')),
     path('api/forum/', include('forum.urls')),
     path('api/ai/', include('ai_assistant.urls')),
+    path('api/messages/', include('messaging.urls')),
+
 ]
 
 if settings.DEBUG:

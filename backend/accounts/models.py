@@ -80,8 +80,8 @@ class PendingRegistration(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['email']),
-            models.Index(fields=['created_at']),
+            models.Index(fields=['email'], name='accounts_pe_email_idx'),
+            models.Index(fields=['created_at'], name='accounts_pe_created_idx'),
         ]
 
     def __str__(self):

@@ -12,6 +12,7 @@ DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -28,6 +29,7 @@ INSTALLED_APPS = [
     'tutoring',
     'forum',
     'ai_assistant',
+    'messaging',
 ]
 
 MIDDLEWARE = [
@@ -60,6 +62,15 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'studyspace.wsgi.application'
+
+ASGI_APPLICATION = 'studyspace.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
+
 
 # Database — PostgreSQL
 DATABASES = {
