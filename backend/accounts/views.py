@@ -12,7 +12,7 @@ import uuid
 import json
 from urllib.error import URLError
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from django.utils import timezone
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
@@ -465,14 +465,22 @@ def _verify_google_access_token(access_token):
 
     try:
         with urlopen(f'https://oauth2.googleapis.com/tokeninfo?{query}', timeout=5) as response:
-            payload = json.loads(response.read().decode('utf-8'))
+            token_payload = json.loads(response.read().decode('utf-8'))
+
+        userinfo_request = Request(
+            'https://www.googleapis.com/oauth2/v3/userinfo',
+            headers={'Authorization': f'Bearer {access_token}'},
+        )
+        with urlopen(userinfo_request, timeout=5) as response:
+            user_payload = json.loads(response.read().decode('utf-8'))
     except (OSError, URLError, ValueError):
         raise ValueError('Invalid Google access token.')
 
-    if payload.get('aud') != settings.GOOGLE_OAUTH_CLIENT_ID:
+    if token_payload.get('aud') != settings.GOOGLE_OAUTH_CLIENT_ID:
         raise ValueError('Google token was not issued for this app.')
 
-    return payload
+    return user_payload
+
 
 
 MICROSOFT_JWKS_URL = 'https://login.microsoftonline.com/common/discovery/v2.0/keys'
@@ -496,7 +504,12 @@ def _verify_microsoft_id_token(microsoft_id_token):
     if not tenant_id or issuer != expected_issuer:
         raise InvalidTokenError('Invalid Microsoft token issuer.')
 
+    allowed_tenants = getattr(settings, 'MICROSOFT_ALLOWED_TENANT_IDS', [])
+    if allowed_tenants and tenant_id not in allowed_tenants:
+        raise InvalidTokenError('Microsoft tenant is not allowed.')
+
     return payload
+
 
 
 class GoogleLoginView(views.APIView):

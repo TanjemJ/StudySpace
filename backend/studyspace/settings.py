@@ -159,3 +159,8 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
 MICROSOFT_CLIENT_ID = os.environ.get('MICROSOFT_CLIENT_ID', '')
+MICROSOFT_ALLOWED_TENANT_IDS = [
+    tenant.strip()
+    for tenant in os.environ.get('MICROSOFT_ALLOWED_TENANT_IDS', '').split(',')
+    if tenant.strip()
+]
