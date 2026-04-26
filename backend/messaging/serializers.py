@@ -18,20 +18,28 @@ class ChatUserSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     sender = ChatUserSerializer(read_only=True)
     is_deleted = serializers.SerializerMethodField()
+    can_modify = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessage
         fields = [
             'id', 'conversation', 'sender', 'body',
-            'created_at', 'edited_at', 'deleted_at', 'is_deleted'
+            'created_at', 'edited_at', 'deleted_at', 'is_deleted',
+            'can_modify',
         ]
         read_only_fields = [
             'id', 'conversation', 'sender',
-            'created_at', 'edited_at', 'deleted_at', 'is_deleted'
+            'created_at', 'edited_at', 'deleted_at', 'is_deleted',
+            'can_modify',
         ]
 
     def get_is_deleted(self, obj):
         return obj.is_deleted
+    
+    def get_can_modify(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        return obj.can_be_modified_by(user)
 
 
 
@@ -55,7 +63,7 @@ class ConversationSerializer(serializers.ModelSerializer):
 
     def get_last_message(self, obj):
         message = obj.messages.order_by('-created_at').first()
-        return ChatMessageSerializer(message).data if message else None
+        return ChatMessageSerializer(message, context=self.context).data if message else None
 
     def get_unread_count(self, obj):
         request = self.context.get('request')
@@ -67,7 +75,7 @@ class ConversationSerializer(serializers.ModelSerializer):
             user=request.user,
         ).first()
 
-        qs = obj.messages.exclude(sender=request.user)
+        qs = obj.messages.filter(deleted_at__isnull=True).exclude(sender=request.user)
         if participant and participant.last_read_at:
             qs = qs.filter(created_at__gt=participant.last_read_at)
 

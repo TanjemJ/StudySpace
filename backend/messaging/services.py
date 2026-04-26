@@ -2,6 +2,9 @@ from django.conf import settings
 
 from accounts.models import User, Notification
 from .models import Conversation, ConversationParticipant, ChatMessage
+from .presence import is_user_connected_to_conversation
+from .utils import serialize_message_payload
+
 
 
 WELCOME_MESSAGE = """Welcome to StudySpace.
@@ -14,6 +17,55 @@ Before you get started:
 
 This is an automated admin message, so replies are disabled here.
 """
+
+MAX_MESSAGE_BODY_LENGTH = 2000
+
+
+class ChatMessageValidationError(ValueError):
+    pass
+
+
+def validate_chat_body(body):
+    body = (body or '').strip()
+
+    if not body:
+        raise ChatMessageValidationError('Message cannot be empty.')
+
+    if len(body) > MAX_MESSAGE_BODY_LENGTH:
+        raise ChatMessageValidationError('Message exceeds 2000 characters.')
+
+    return body
+
+
+def create_chat_message(conversation, sender, body):
+    body = validate_chat_body(body)
+
+    message = ChatMessage.objects.create(
+        conversation=conversation,
+        sender=sender,
+        body=body,
+    )
+
+    conversation.last_message_at = message.created_at
+    conversation.save(update_fields=['last_message_at', 'updated_at'])
+
+    ConversationParticipant.objects.get_or_create(
+        conversation=conversation,
+        user=sender,
+    )[0].mark_read()
+
+    recipient = conversation.other_participant(sender)
+
+    if not is_user_connected_to_conversation(conversation.id, recipient.id):
+        Notification.objects.create(
+            user=recipient,
+            notification_type=Notification.NotifType.MESSAGE,
+            title=f'New message from {sender.display_name}',
+            message=body[:120],
+            link=f'/messages/{conversation.id}',
+        )
+
+    return message, serialize_message_payload(message, viewer=sender)
 
 
 def _unique_admin_display_name():

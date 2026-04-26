@@ -60,11 +60,8 @@ function formatDateSeparator(value) {
 function canModifyMessage(message, user) {
     if (!message || !user || message.is_deleted) return false;
     if (String(message.sender.id) !== String(user.id)) return false;
-
-    const createdAt = new Date(message.created_at).getTime();
-    return Date.now() - createdAt <= 3 * 60 * 1000;
+    return message.can_modify === true;
 }
-
 
 export default function Messages() {
     const { conversationId } = useParams();

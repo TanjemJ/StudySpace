@@ -4,6 +4,7 @@ from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework.exceptions import AuthenticationFailed
 
 
 @database_sync_to_async
@@ -12,7 +13,7 @@ def get_user_from_token(token):
         jwt_auth = JWTAuthentication()
         validated_token = jwt_auth.get_validated_token(token)
         return jwt_auth.get_user(validated_token)
-    except (InvalidToken, TokenError, Exception):
+    except (InvalidToken, TokenError, AuthenticationFailed):
         return AnonymousUser()
 
 

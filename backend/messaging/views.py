@@ -7,8 +7,9 @@ from rest_framework.response import Response
 
 from accounts.models import User, Notification
 from .models import Conversation, ConversationParticipant, ChatMessage
-from .presence import is_user_connected_to_conversation
 from .serializers import ConversationSerializer, ChatMessageSerializer, ChatUserSerializer
+from .services import ChatMessageValidationError, create_chat_message
+from .utils import serialize_message_payload
 
 
 def get_user_conversations(user):
@@ -20,29 +21,6 @@ def get_user_conversations(user):
 
 def user_can_access_conversation(user, conversation):
     return conversation.user_one_id == user.id or conversation.user_two_id == user.id
-
-
-def serialize_message_for_socket(message):
-    sender = message.sender
-
-    return {
-        'id': str(message.id),
-        'conversation': str(message.conversation_id),
-        'sender': {
-            'id': str(sender.id),
-            'display_name': sender.display_name,
-            'first_name': sender.first_name,
-            'last_name': sender.last_name,
-            'role': sender.role,
-            'avatar_url': sender.avatar.url if sender.avatar else '',
-        },
-        'body': message.body,
-        'created_at': message.created_at.isoformat(),
-        'edited_at': message.edited_at.isoformat() if message.edited_at else None,
-        'deleted_at': message.deleted_at.isoformat() if message.deleted_at else None,
-        'is_deleted': message.is_deleted,
-    }
-
 
 
 class ConversationListView(generics.ListAPIView):
@@ -109,7 +87,7 @@ class MessageListCreateView(views.APIView):
             return Response({'error': 'Conversation not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         messages = conversation.messages.select_related('sender').order_by('created_at')
-        return Response(ChatMessageSerializer(messages, many=True).data)
+        return Response(ChatMessageSerializer(messages, many=True, context={'request': request}).data)
 
     def post(self, request, conversation_id):
         conversation = self.get_conversation(request, conversation_id)
@@ -119,47 +97,28 @@ class MessageListCreateView(views.APIView):
         if not conversation.allow_replies:
             return Response({'error': 'This conversation is read-only.'}, status=status.HTTP_403_FORBIDDEN)
 
-        body = (request.data.get('body') or '').strip()
-        if not body:
-            return Response({'error': 'Message cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        message = ChatMessage.objects.create(
-            conversation=conversation,
-            sender=request.user,
-            body=body,
-        )
-
-        conversation.last_message_at = message.created_at
-        conversation.save(update_fields=['last_message_at', 'updated_at'])
-
-        ConversationParticipant.objects.get_or_create(
-            conversation=conversation,
-            user=request.user,
-        )[0].mark_read()
-
-        recipient = conversation.other_participant(request.user)
-
-        if not is_user_connected_to_conversation(conversation.id, recipient.id):
-            Notification.objects.create(
-                user=recipient,
-                notification_type=Notification.NotifType.MESSAGE,
-                title=f'New message from {request.user.display_name}',
-                message=body[:120],
-                link=f'/messages/{conversation.id}',
+        try:
+            message, payload = create_chat_message(
+                conversation=conversation,
+                sender=request.user,
+                body=request.data.get('body'),
             )
+        except ChatMessageValidationError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        data = ChatMessageSerializer(message).data
+        data = ChatMessageSerializer(message, context={'request': request}).data
 
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             f'conversation_{conversation.id}',
             {
                 'type': 'chat_message',
-                'message': serialize_message_for_socket(message),
+                'message': payload,
             },
         )
 
         return Response(data, status=status.HTTP_201_CREATED)
+
 
 class MessageDetailView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -195,8 +154,8 @@ class MessageDetailView(views.APIView):
         message.edited_at = timezone.now()
         message.save(update_fields=['body', 'edited_at'])
 
-        data = ChatMessageSerializer(message).data
-        self.broadcast_update(message.conversation_id, serialize_message_for_socket(message))
+        data = ChatMessageSerializer(message, context={'request': request}).data
+        self.broadcast_update(message.conversation_id, serialize_message_payload(message, viewer=request.user))
 
         return Response(data)
 
@@ -212,8 +171,8 @@ class MessageDetailView(views.APIView):
         message.deleted_at = timezone.now()
         message.save(update_fields=['body', 'deleted_at'])
 
-        data = ChatMessageSerializer(message).data
-        self.broadcast_update(message.conversation_id, serialize_message_for_socket(message))
+        data = ChatMessageSerializer(message, context={'request': request}).data
+        self.broadcast_update(message.conversation_id, serialize_message_payload(message, viewer=request.user))
 
         return Response(data)
 

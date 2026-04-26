@@ -3,35 +3,13 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.utils import timezone
 
 from accounts.models import Notification
-from .models import Conversation, ConversationParticipant, ChatMessage
+from .models import Conversation, ConversationParticipant
+from .services import ChatMessageValidationError, create_chat_message
 from .presence import (
     add_user_to_conversation,
     remove_user_from_conversation,
     is_user_connected_to_conversation,
 )
-
-def serialize_chat_message(message):
-    sender = message.sender
-
-    return {
-        'id': str(message.id),
-        'conversation': str(message.conversation_id),
-        'sender': {
-            'id': str(sender.id),
-            'display_name': sender.display_name,
-            'first_name': sender.first_name,
-            'last_name': sender.last_name,
-            'role': sender.role,
-            'avatar_url': sender.avatar.url if sender.avatar else '',
-        },
-        'body': message.body,
-        'created_at': message.created_at.isoformat(),
-        'edited_at': message.edited_at.isoformat() if message.edited_at else None,
-        'deleted_at': message.deleted_at.isoformat() if message.deleted_at else None,
-        'is_deleted': message.is_deleted,
-    }
-
-
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
@@ -89,20 +67,21 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
         try:
             message_data = await self.create_message(body)
-
-            await self.channel_layer.group_send(
-                self.group_name,
-                {
-                    'type': 'chat_message',
-                    'message': message_data,
-                },
-            )
-        except Exception:
+        except ChatMessageValidationError as exc:
             await self.send_json({
                 'type': 'error',
-                'message': 'Message was saved, but real-time delivery failed.',
+                'message': str(exc),
             })
-            raise
+            return
+
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                'type': 'chat_message',
+                'message': message_data,
+            },
+        )
+
 
     async def chat_message(self, event):
         message = event['message']
@@ -168,31 +147,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def create_message(self, body):
-        conversation = Conversation.objects.select_related('user_one', 'user_two').get(id=self.conversation_id)
-
-        message = ChatMessage.objects.create(
-            conversation=conversation,
-            sender=self.user,
-            body=body,
+        conversation = Conversation.objects.select_related('user_one', 'user_two').get(
+            id=self.conversation_id
         )
-
-        conversation.last_message_at = message.created_at
-        conversation.save(update_fields=['last_message_at', 'updated_at'])
-
-        ConversationParticipant.objects.get_or_create(
-            conversation=conversation,
-            user=self.user,
-        )[0].mark_read()
-
-        recipient = conversation.other_participant(self.user)
-
-        if not is_user_connected_to_conversation(conversation.id, recipient.id):
-            Notification.objects.create(
-                user=recipient,
-                notification_type=Notification.NotifType.MESSAGE,
-                title=f'New message from {self.user.display_name}',
-                message=body[:120],
-                link=f'/messages/{conversation.id}',
-            )
-
-        return serialize_chat_message(message)
+        _, payload = create_chat_message(conversation, self.user, body)
+        return payload
