@@ -15,12 +15,19 @@ import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
 function getWsUrl(conversationId) {
+    const configuredBase = import.meta.env.VITE_WS_BASE_URL;
+
+    if (configuredBase) {
+        return `${configuredBase.replace(/\/$/, '')}/ws/messages/${conversationId}/`;
+    }
+
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
     const host = isLocal ? '127.0.0.1:8000' : window.location.host;
 
     return `${wsProtocol}://${host}/ws/messages/${conversationId}/`;
 }
+
 
 function getWsToken() {
     const tokens = JSON.parse(localStorage.getItem('tokens') || '{}');
