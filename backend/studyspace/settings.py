@@ -119,6 +119,14 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ),
+        'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/hour',
+        'user': '300/hour',
+        'register': '5/hour',
+        'verify_code': '10/hour',
+        'resend_code': '5/hour',
+        'university_send': '5/hour',
+    },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
 }

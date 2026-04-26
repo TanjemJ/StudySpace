@@ -2,6 +2,7 @@
 from rest_framework import status, permissions, views
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.throttling import ScopedRateThrottle
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -98,6 +99,8 @@ class UpdateProfileView(views.APIView):
 
 class SendUniversityVerificationCodeView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'university_send'
 
     def post(self, request):
         user = request.user

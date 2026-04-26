@@ -1,5 +1,6 @@
 from rest_framework import generics, status, permissions, views
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
@@ -69,8 +70,9 @@ def _unique_temp_display_name():
 
 
 class RegisterStep1View(views.APIView):
-    """Stash a pending registration; no User created yet (see v1 update)."""
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'register'
 
     def post(self, request):
         serializer = RegisterStep1Serializer(data=request.data)
@@ -130,6 +132,8 @@ class RegisterStep1View(views.APIView):
 class VerifyEmailCodeView(views.APIView):
     """Verify the 6-digit code and atomically promote the pending row to a real User."""
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'verify_code'
 
     def post(self, request):
         serializer = VerifyCodeSerializer(data=request.data)
@@ -219,7 +223,9 @@ class VerifyEmailCodeView(views.APIView):
 
 class ResendCodeView(views.APIView):
     permission_classes = [permissions.AllowAny]
-
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'resend_code'
+    
     def post(self, request):
         email = (request.data.get('email') or '').strip().lower()
 
