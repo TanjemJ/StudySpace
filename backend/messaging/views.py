@@ -13,8 +13,9 @@ from .serializers import ConversationSerializer, ChatMessageSerializer, ChatUser
 
 def get_user_conversations(user):
     return Conversation.objects.filter(
-        Q(user_one=user) | Q(user_two=user)
-    ).select_related('user_one', 'user_two').prefetch_related('messages', 'participant_states')
+        Q(user_one=user) | Q(user_two=user),
+        messages__isnull=False,
+    ).distinct().select_related('user_one', 'user_two').prefetch_related('messages', 'participant_states')
 
 
 def user_can_access_conversation(user, conversation):

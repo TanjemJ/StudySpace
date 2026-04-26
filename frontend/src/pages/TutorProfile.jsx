@@ -122,6 +122,20 @@ export default function TutorProfile() {
     setWeekStart(earliestMonday);
   };
 
+  const openMessage = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    const res = await api.post('/messages/conversations/start/', {
+      user_id: tutor.user.id,
+    });
+
+    navigate(`/messages/${res.data.id}`);
+  };
+
+
   // Two-phase submit: create booking first, then upload each attached doc to it.
   const handleBook = async () => {
     if (!selectedSlot || !subject) {
@@ -279,7 +293,14 @@ export default function TutorProfile() {
                 ) : (
                   <Button variant="contained" size="large" disabled>This is your profile</Button>
                 )}
-                <Button variant="outlined" size="large" disabled>Message (Coming Soon)</Button>
+                <Button
+                  variant="outlined"
+                  size="large"
+                  onClick={openMessage}
+                  disabled={user?.id === tutor.user?.id}
+                >
+                  Message
+                </Button>
               </Stack>
             </Box>
           </Box>

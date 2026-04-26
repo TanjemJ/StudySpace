@@ -15,8 +15,11 @@ import { useAuth } from '../contexts/AuthContext';
 function getWsUrl(conversationId) {
   const tokens = JSON.parse(localStorage.getItem('tokens') || '{}');
   const token = encodeURIComponent(tokens.access || '');
-  return `ws://127.0.0.1:8000/ws/messages/${conversationId}/?token=${token}`;
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const host = window.location.hostname === 'localhost' ? '127.0.0.1:8000' : window.location.host;
+  return `${wsProtocol}://${host}/ws/messages/${conversationId}/?token=${token}`;
 }
+
 
 function displayUserName(user) {
   if (!user) return 'Unknown user';
@@ -37,14 +40,16 @@ export default function Messages() {
   const [chatLoading, setChatLoading] = useState(false);
   const [error, setError] = useState('');
   const [typingUser, setTypingUser] = useState(null);
+  const [draftConversation, setDraftConversation] = useState(null);
+
 
   const socketRef = useRef(null);
   const bottomRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
   const activeConversation = useMemo(
-    () => conversations.find(c => c.id === conversationId),
-    [conversations, conversationId]
+    () => conversations.find(c => c.id === conversationId) || (draftConversation?.id === conversationId ? draftConversation : null),
+    [conversations, conversationId, draftConversation]
   );
 
   const fetchConversations = async () => {
@@ -72,6 +77,13 @@ export default function Messages() {
   }, []);
 
   useEffect(() => {
+    if (!loading && !conversationId && conversations.length > 0) {
+        navigate(`/messages/${conversations[0].id}`, { replace: true });
+    }
+  }, [loading, conversationId, conversations, navigate]);
+
+
+  useEffect(() => {
     if (!conversationId) {
       setMessages([]);
       return;
@@ -79,8 +91,13 @@ export default function Messages() {
 
     fetchMessages(conversationId).catch(() => setError('Could not load messages.'));
 
+    let opened = false;
     const socket = new WebSocket(getWsUrl(conversationId));
     socketRef.current = socket;
+
+    socket.onopen = () => {
+    opened = true;
+    };
 
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -99,7 +116,9 @@ export default function Messages() {
     };
 
     socket.onerror = () => {
-      setError('Live chat connection failed. Messages can still be sent after refreshing.');
+        if (!opened) {
+            setError('Live chat connection failed. Refresh the page after confirming the backend is running.');
+        }
     };
 
     return () => {
@@ -136,6 +155,7 @@ export default function Messages() {
       user_id: selectedUser.id,
     });
 
+    setDraftConversation(res.data);
     await fetchConversations();
     setSearch('');
     setSearchResults([]);

@@ -76,9 +76,6 @@ export default function Navbar() {
             {/* Dashboard button — visible for ALL roles on desktop */}
             {!isMobile && (
               <>
-                <Button size="small" onClick={() => navigate('/messages')} startIcon={<Message />}>
-                  Messages
-                </Button>
                 <Button size="small" onClick={() => navigate(dashboardPath)} startIcon={<Dashboard />}>
                   Dashboard
                 </Button>
