@@ -432,35 +432,6 @@ class RegisterTutorStep4View(views.APIView):
         return Response({'message': 'Rate, experience, and location saved.', 'user_id': str(profile.user_id)})
 
 
-class RegisterTutorStep5View(views.APIView):
-    """Legacy single-file version — see tutor_docs_view.py for the multi-doc one."""
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        user_id = request.data.get('user_id')
-        try:
-            profile = TutorProfile.objects.get(user_id=user_id)
-        except TutorProfile.DoesNotExist:
-            return Response({'error': 'Tutor profile not found.'}, status=status.HTTP_404_NOT_FOUND)
-
-        if request.FILES.get('photo_id'):
-            profile.photo_id = request.FILES['photo_id']
-        if request.FILES.get('qualifications_doc'):
-            profile.qualifications_doc = request.FILES['qualifications_doc']
-        if request.FILES.get('dbs_certificate'):
-            profile.dbs_certificate = request.FILES['dbs_certificate']
-
-        profile.verification_status = TutorProfile.VerificationStatus.PENDING
-        profile.save()
-
-        tokens = get_tokens_for_user(profile.user)
-        return Response({
-            'message': 'Registration complete! Your profile is pending verification.',
-            'user': UserSerializer(profile.user).data,
-            'tokens': tokens,
-        })
-
-
 class LoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
