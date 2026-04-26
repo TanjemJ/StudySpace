@@ -188,10 +188,14 @@ class VerifyEmailCodeView(views.APIView):
             user.save()
             pending.delete()
 
+        tokens = get_tokens_for_user(user)
         return Response({
             'message': 'Email verified successfully.',
             'user_id': str(user.id),
+            'user': UserSerializer(user).data,
+            'tokens': tokens,
         })
+
 
     def _legacy_verify(self, email, submitted_code):
         """Fallback for users created before the PendingRegistration migration."""
@@ -218,7 +222,14 @@ class VerifyEmailCodeView(views.APIView):
         user.is_email_verified = True
         user.save()
 
-        return Response({'message': 'Email verified successfully.', 'user_id': str(user.id)})
+        tokens = get_tokens_for_user(user)
+        return Response({
+            'message': 'Email verified successfully.',
+            'user_id': str(user.id),
+            'user': UserSerializer(user).data,
+            'tokens': tokens,
+        })
+
 
 
 class ResendCodeView(views.APIView):
@@ -282,18 +293,14 @@ class ResendCodeView(views.APIView):
 
 
 class RegisterStep2View(views.APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         serializer = RegisterStep2Serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user_id = request.data.get('user_id')
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        user = request.user
 
         user.first_name = data['first_name']
         user.last_name = data['last_name']
@@ -306,18 +313,17 @@ class RegisterStep2View(views.APIView):
 
 
 class RegisterStep3StudentView(views.APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         serializer = RegisterStep3StudentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user_id = request.data.get('user_id')
-        try:
-            user = User.objects.get(id=user_id, role=User.Role.STUDENT)
-        except User.DoesNotExist:
+        user = request.user
+        if user.role != User.Role.STUDENT:
             return Response({'error': 'Student not found.'}, status=status.HTTP_404_NOT_FOUND)
+
 
         profile, _ = StudentProfile.objects.get_or_create(user=user)
 
@@ -378,18 +384,17 @@ class RegisterStep3StudentView(views.APIView):
 
 
 class RegisterTutorStep3View(views.APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         serializer = RegisterTutorStep3Serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user_id = request.data.get('user_id')
-        try:
-            user = User.objects.get(id=user_id, role=User.Role.TUTOR)
-        except User.DoesNotExist:
+        user = request.user
+        if user.role != User.Role.TUTOR:
             return Response({'error': 'Tutor not found.'}, status=status.HTTP_404_NOT_FOUND)
+
 
         profile, _ = TutorProfile.objects.get_or_create(user=user)
         profile.company_email = data['company_email']
@@ -405,16 +410,15 @@ class RegisterTutorStep4View(views.APIView):
     Location is now collected here so students can see where the tutor is based
     when browsing tutor cards / profiles.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         serializer = RegisterTutorStep4Serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user_id = request.data.get('user_id')
         try:
-            profile = TutorProfile.objects.get(user_id=user_id)
+            profile = request.user.tutor_profile
         except TutorProfile.DoesNotExist:
             return Response({'error': 'Tutor profile not found.'}, status=status.HTTP_404_NOT_FOUND)
 

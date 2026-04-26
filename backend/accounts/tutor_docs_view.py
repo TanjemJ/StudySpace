@@ -41,7 +41,7 @@ class RegisterTutorStep5View(views.APIView):
     After upload the tutor profile is flagged as PENDING review in the admin
     queue.
     """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     MAX_DOCUMENTS = 5
@@ -50,14 +50,12 @@ class RegisterTutorStep5View(views.APIView):
     ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png'}
 
     def post(self, request):
-        user_id = request.data.get('user_id')
-        if not user_id:
-            return Response({'error': 'user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
-
+        
         try:
-            profile = TutorProfile.objects.get(user_id=user_id)
+            profile = request.user.tutor_profile
         except TutorProfile.DoesNotExist:
             return Response({'error': 'Tutor profile not found.'}, status=status.HTTP_404_NOT_FOUND)
+
 
         try:
             count = int(request.data.get('document_count', 0))
