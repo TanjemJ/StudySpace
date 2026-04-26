@@ -225,7 +225,7 @@ class ResendCodeView(views.APIView):
     permission_classes = [permissions.AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'resend_code'
-    
+
     def post(self, request):
         email = (request.data.get('email') or '').strip().lower()
 
@@ -583,8 +583,10 @@ class GoogleLoginView(views.APIView):
             )
 
         if not user.is_email_verified:
-            user.is_email_verified = True
-            user.save(update_fields=['is_email_verified'])
+            return Response(
+                {'error': 'Please verify your StudySpace email address before using social login.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         tokens = get_tokens_for_user(user)
         return Response({
@@ -632,8 +634,11 @@ class MicrosoftLoginView(views.APIView):
             return Response({'error': 'This account has been deleted.'}, status=status.HTTP_401_UNAUTHORIZED)
 
         if not user.is_email_verified:
-            user.is_email_verified = True
-            user.save(update_fields=['is_email_verified'])
+            return Response(
+                {'error': 'Please verify your StudySpace email address before using social login.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
 
         tokens = get_tokens_for_user(user)
         return Response({
