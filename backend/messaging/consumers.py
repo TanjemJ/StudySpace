@@ -9,7 +9,24 @@ from .presence import (
     remove_user_from_conversation,
     is_user_connected_to_conversation,
 )
-from .serializers import ChatMessageSerializer
+
+def serialize_chat_message(message):
+    sender = message.sender
+
+    return {
+        'id': str(message.id),
+        'conversation': str(message.conversation_id),
+        'sender': {
+            'id': str(sender.id),
+            'display_name': sender.display_name,
+            'first_name': sender.first_name,
+            'last_name': sender.last_name,
+            'role': sender.role,
+            'avatar_url': sender.avatar.url if sender.avatar else '',
+        },
+        'body': message.body,
+        'created_at': message.created_at.isoformat(),
+    }
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
@@ -59,15 +76,22 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         if not body:
             return
 
-        message_data = await self.create_message(body)
+        try:
+            message_data = await self.create_message(body)
 
-        await self.channel_layer.group_send(
-            self.group_name,
-            {
-                'type': 'chat_message',
-                'message': message_data,
-            },
-        )
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    'type': 'chat_message',
+                    'message': message_data,
+                },
+            )
+        except Exception:
+            await self.send_json({
+                'type': 'error',
+                'message': 'Message was saved, but real-time delivery failed.',
+            })
+            raise
 
     async def chat_message(self, event):
         message = event['message']
@@ -144,4 +168,4 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 link=f'/messages/{conversation.id}',
             )
 
-        return ChatMessageSerializer(message).data
+        return serialize_chat_message(message)

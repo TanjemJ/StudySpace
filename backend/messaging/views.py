@@ -31,6 +31,19 @@ class ConversationListView(generics.ListAPIView):
 
     def get_serializer_context(self):
         return {'request': self.request}
+    
+class ConversationDetailView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ConversationSerializer
+    lookup_url_kwarg = 'conversation_id'
+
+    def get_queryset(self):
+        return Conversation.objects.filter(
+            Q(user_one=self.request.user) | Q(user_two=self.request.user)
+        ).select_related('user_one', 'user_two').prefetch_related('messages', 'participant_states')
+
+    def get_serializer_context(self):
+        return {'request': self.request}
 
 
 class StartConversationView(views.APIView):
