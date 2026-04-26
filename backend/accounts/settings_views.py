@@ -134,25 +134,6 @@ class SendUniversityVerificationCodeView(views.APIView):
                 'user': _get_full_user_data(user),
             })
 
-        
-        if user.is_email_verified and email == user.email.lower():
-            _apply_verified_university_email(
-                profile=profile,
-                profile_type=profile_type,
-                verified_email=email,
-                university_name=validation['university_name'],
-            )
-            return Response({
-                'message': 'Your university email matches your already verified account email, so it has been verified automatically.',
-                'auto_verified': True,
-                'user': _get_full_user_data(user),
-            })
-
-
-        current_verified_email = (
-            profile.university_email if profile_type == 'student' else profile.company_email
-        )
-
         if (
             current_verified_email
             and profile.university_verified
@@ -171,6 +152,20 @@ class SendUniversityVerificationCodeView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if user.is_email_verified and email == user.email.lower():
+            _apply_verified_university_email(
+                profile=profile,
+                profile_type=profile_type,
+                verified_email=email,
+                university_name=validation['university_name'],
+            )
+            return Response({
+                'message': 'Your university email matches your already verified account email, so it has been verified automatically.',
+                'auto_verified': True,
+                'user': _get_full_user_data(user),
+            })
+
+        
         EmailVerificationCode.objects.filter(
             user=user,
             purpose=EmailVerificationCode.Purpose.UNIVERSITY_EMAIL,
