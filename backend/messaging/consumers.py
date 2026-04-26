@@ -1,44 +1,104 @@
+import asyncio
+from collections import deque
+
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.utils import timezone
 
 from accounts.models import Notification
+from .middleware import get_user_from_token
 from .models import Conversation, ConversationParticipant
 from .services import ChatMessageValidationError, create_chat_message
 from .presence import (
     add_user_to_conversation,
     remove_user_from_conversation,
-    is_user_connected_to_conversation,
 )
+
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         self.user = self.scope['user']
         self.conversation_id = self.scope['url_route']['kwargs']['conversation_id']
         self.group_name = f'conversation_{self.conversation_id}'
+        self.is_authenticated = False
+        self.message_timestamps = deque()
+
+        await self.accept()
+        self.auth_timeout_task = asyncio.create_task(self.close_if_not_authenticated())
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'auth_timeout_task'):
+            self.auth_timeout_task.cancel()
+
+        if getattr(self, 'is_authenticated', False) and hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+        if getattr(self, 'is_authenticated', False) and hasattr(self, 'conversation_id') and hasattr(self, 'user'):
+            remove_user_from_conversation(self.conversation_id, self.user.id, self.channel_name)
+
+    async def close_if_not_authenticated(self):
+        await asyncio.sleep(5)
+        if not getattr(self, 'is_authenticated', False):
+            await self.close(code=4001)
+
+    async def authenticate_socket(self, token):
+        if self.is_authenticated:
+            return
+
+        self.user = await get_user_from_token(token)
+        self.scope['user'] = self.user
 
         if not self.user or not self.user.is_authenticated:
-            await self.close()
+            await self.send_json({
+                'type': 'error',
+                'message': 'Live chat authentication failed. Please log in again.',
+            })
+            await self.close(code=4001)
             return
 
         is_allowed = await self.user_can_access_conversation()
         if not is_allowed:
-            await self.close()
+            await self.send_json({
+                'type': 'error',
+                'message': 'You do not have access to this conversation.',
+            })
+            await self.close(code=4003)
             return
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         add_user_to_conversation(self.conversation_id, self.user.id, self.channel_name)
         await self.mark_conversation_read()
-        await self.accept()
 
-    async def disconnect(self, close_code):
-        if hasattr(self, 'group_name'):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
-        if hasattr(self, 'conversation_id') and hasattr(self, 'user'):
-            remove_user_from_conversation(self.conversation_id, self.user.id, self.channel_name)
+        self.is_authenticated = True
+
+        if hasattr(self, 'auth_timeout_task'):
+            self.auth_timeout_task.cancel()
+
+        await self.send_json({'type': 'auth_ok'})
+
+    def message_rate_limited(self):
+        now = timezone.now()
+        window = timezone.timedelta(seconds=10)
+
+        while self.message_timestamps and now - self.message_timestamps[0] > window:
+            self.message_timestamps.popleft()
+
+        if len(self.message_timestamps) >= 30:
+            return True
+
+        self.message_timestamps.append(now)
+        return False
 
     async def receive_json(self, content):
         event_type = content.get('type')
+
+        if event_type == 'auth':
+            await self.authenticate_socket(content.get('token'))
+            return
+
+        if not getattr(self, 'is_authenticated', False):
+            await self.close(code=4001)
+            return
 
         if event_type == 'typing':
             await self.channel_layer.group_send(
@@ -57,7 +117,14 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         body = (content.get('body') or '').strip()
         if not body:
             return
-        
+
+        if self.message_rate_limited():
+            await self.send_json({
+                'type': 'error',
+                'message': 'You are sending messages too quickly. Please slow down.',
+            })
+            return
+
         if not await self.conversation_allows_replies():
             await self.send_json({
                 'type': 'error',

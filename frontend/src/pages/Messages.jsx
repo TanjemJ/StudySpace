@@ -15,14 +15,18 @@ import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
 function getWsUrl(conversationId) {
-    const tokens = JSON.parse(localStorage.getItem('tokens') || '{}');
-    const token = encodeURIComponent(tokens.access || '');
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
     const host = isLocal ? '127.0.0.1:8000' : window.location.host;
 
-    return `${wsProtocol}://${host}/ws/messages/${conversationId}/?token=${token}`;
+    return `${wsProtocol}://${host}/ws/messages/${conversationId}/`;
 }
+
+function getWsToken() {
+    const tokens = JSON.parse(localStorage.getItem('tokens') || '{}');
+    return tokens.access || '';
+}
+
 
 function displayUserName(user) {
     if (!user) return 'Unknown user';
@@ -234,14 +238,28 @@ export default function Messages() {
 
                 socket.onopen = () => {
                     if (cancelled) return;
+
                     opened = true;
-                    setError('');
+
+                    const token = getWsToken();
+                    if (!token) {
+                        setError('Live chat authentication failed. Please log in again.');
+                        socket.close(4001);
+                        return;
+                    }
+
+                    socket.send(JSON.stringify({ type: 'auth', token }));
                 };
 
                 socket.onmessage = (event) => {
                     if (cancelled) return;
 
                     const data = JSON.parse(event.data);
+
+                    if (data.type === 'auth_ok') {
+                        setError('');
+                        return;
+                    }
 
                     if (data.type === 'error') {
                         setError(data.message || 'Live message delivery failed.');
@@ -268,10 +286,23 @@ export default function Messages() {
                 socket.onerror = () => { };
 
                 socket.onclose = (event) => {
-                    if (!cancelled && !opened) {
+                    if (cancelled) return;
+
+                    if (event.code === 4001) {
+                        setError('Live chat authentication failed. Please log in again.');
+                        return;
+                    }
+
+                    if (event.code === 4003) {
+                        setError('You do not have access to this conversation.');
+                        return;
+                    }
+
+                    if (!opened) {
                         setError(`Live chat connection failed. WebSocket closed with code ${event.code}.`);
                     }
                 };
+
             } catch {
                 if (!cancelled) {
                     setError('Could not load messages.');
