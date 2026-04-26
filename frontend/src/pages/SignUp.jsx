@@ -225,6 +225,8 @@ export default function SignUp() {
     try {
       const res = await api.post('/auth/register/verify-code/', { email, code });
       if (res.data.user_id) setUserId(res.data.user_id);
+      if (res.data.tokens) localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
+      if (res.data.user) updateUser(res.data.user);
       setStep(2);
     } catch (err) {
       setError(err.response?.data?.error || 'Verification failed.');
@@ -245,8 +247,10 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       await api.post('/auth/register/step2/', {
-        user_id: userId, first_name: firstName, last_name: lastName,
-        display_name: displayName, date_of_birth: dob || null,
+        first_name: firstName,
+        last_name: lastName,
+        display_name: displayName,
+        date_of_birth: dob || null,
       });
       setStep(3);
     } catch (err) {
@@ -264,7 +268,6 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       const res = await api.post('/auth/register/step3/student/', {
-        user_id: userId,
         university,
         university_email: universityEmail,
         course,
@@ -280,7 +283,7 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       await api.post('/auth/register/step3/tutor/', {
-        user_id: userId, company_email: companyEmail,
+        company_email: companyEmail,
         subjects: subjects.split(',').map(s => s.trim()).filter(Boolean),
       });
       setStep(4);
@@ -302,7 +305,6 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       await api.post('/auth/register/step4/tutor/', {
-        user_id: userId,
         hourly_rate: parseFloat(hourlyRate),
         experience_years: parseInt(experience, 10),
         personal_statement: personalStatement,
@@ -327,7 +329,6 @@ export default function SignUp() {
     }
     setError(''); setLoading(true);
     const formData = new FormData();
-    formData.append('user_id', userId);
     formData.append('document_count', documents.length);
     documents.forEach((d, i) => {
       formData.append(`document_${i}`, d.file);
