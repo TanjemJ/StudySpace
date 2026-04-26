@@ -115,6 +115,9 @@ class MessageListCreateView(views.APIView):
         conversation = self.get_conversation(request, conversation_id)
         if not conversation:
             return Response({'error': 'Conversation not found.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if not conversation.allow_replies:
+            return Response({'error': 'This conversation is read-only.'}, status=status.HTTP_403_FORBIDDEN)
 
         body = (request.data.get('body') or '').strip()
         if not body:

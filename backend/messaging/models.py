@@ -13,6 +13,8 @@ class Conversation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_message_at = models.DateTimeField(null=True, blank=True)
+    is_system = models.BooleanField(default=False)
+    allow_replies = models.BooleanField(default=True)
 
     class Meta:
         ordering = ['-last_message_at', '-updated_at']

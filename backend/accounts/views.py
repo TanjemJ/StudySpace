@@ -22,6 +22,15 @@ import jwt
 
 
 from .university_email_service import validate_university_email, university_email_is_verified_elsewhere
+from .registration_services import (
+    PendingRegistrationError,
+    create_user_from_pending,
+    display_name_is_reserved_for_pending,
+    get_verified_pending_registration,
+    pending_has_personal_details,
+    reset_pending_registration_details,
+)
+from messaging.services import create_welcome_conversation_for_user
 from .models import (
     User, StudentProfile, TutorProfile,
     EmailVerificationCode, PendingRegistration, Notification,
@@ -89,6 +98,7 @@ class RegisterStep1View(views.APIView):
         hashed = make_password(data['password'])
 
         if stale:
+            reset_pending_registration_details(stale)
             stale.hashed_password = hashed
             stale.role = data['role']
             stale.code = code
@@ -130,7 +140,7 @@ class RegisterStep1View(views.APIView):
 
 
 class VerifyEmailCodeView(views.APIView):
-    """Verify the 6-digit code and atomically promote the pending row to a real User."""
+    """Verify the 6-digit code without creating the real User yet."""
     permission_classes = [permissions.AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'verify_code'
@@ -168,25 +178,48 @@ class VerifyEmailCodeView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        with transaction.atomic():
-            if User.objects.filter(email=email).exists():
-                pending.delete()
-                return Response(
-                    {'error': 'An account with this email already exists.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            user = User(
-                email=email,
-                username=email,
-                role=pending.role,
-                display_name=_unique_temp_display_name(),
-                is_active=True,
-                is_email_verified=True,
-            )
-            user.password = pending.hashed_password
-            user.save()
+        if User.objects.filter(email=email).exists():
             pending.delete()
+            return Response(
+                {'error': 'An account with this email already exists.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pending.email_verified_at = timezone.now()
+        pending.attempts = 0
+        pending.save(update_fields=['email_verified_at', 'attempts', 'updated_at'])
+
+        return Response({
+            'message': 'Email verified successfully. Continue registration.',
+            'registration_id': str(pending.id),
+            'email': pending.email,
+            'role': pending.role,
+        })
+
+    def _legacy_verify(self, email, submitted_code):
+        """Fallback for users created before the PendingRegistration migration."""
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        verification = EmailVerificationCode.objects.filter(
+            user=user,
+            code=submitted_code,
+            purpose=EmailVerificationCode.Purpose.ACCOUNT_EMAIL,
+            target_email=user.email,
+            is_used=False,
+        ).order_by('-created_at').first()
+
+        if not verification:
+            return Response({'error': 'Invalid verification code.'}, status=status.HTTP_400_BAD_REQUEST)
+        if verification.is_expired:
+            return Response({'error': 'Code has expired. Request a new one.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        verification.is_used = True
+        verification.save()
+        user.is_email_verified = True
+        user.save()
 
         tokens = get_tokens_for_user(user)
         return Response({
@@ -195,6 +228,7 @@ class VerifyEmailCodeView(views.APIView):
             'user': UserSerializer(user).data,
             'tokens': tokens,
         })
+
 
 
     def _legacy_verify(self, email, submitted_code):
@@ -293,48 +327,71 @@ class ResendCodeView(views.APIView):
 
 
 class RegisterStep2View(views.APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        try:
+            pending = get_verified_pending_registration(request.data.get('registration_id'))
+        except PendingRegistrationError as exc:
+            return Response({'error': str(exc)}, status=exc.status_code)
+
         serializer = RegisterStep2Serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user = request.user
+        display_name = data['display_name'].strip()
 
-        user.first_name = data['first_name']
-        user.last_name = data['last_name']
-        user.display_name = data['display_name']
-        if data.get('date_of_birth'):
-            user.date_of_birth = data['date_of_birth']
-        user.save()
+        if display_name_is_reserved_for_pending(display_name, pending):
+            return Response(
+                {'display_name': ['This username is already taken.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        return Response({'message': 'Personal info saved.', 'user_id': str(user.id)})
+        pending.first_name = data['first_name'].strip()
+        pending.last_name = data['last_name'].strip()
+        pending.display_name = display_name
+        pending.date_of_birth = data['date_of_birth']
+        pending.save(update_fields=[
+            'first_name',
+            'last_name',
+            'display_name',
+            'date_of_birth',
+            'updated_at',
+        ])
+
+        return Response({
+            'message': 'Personal info saved.',
+            'registration_id': str(pending.id),
+        })
+
 
 
 class RegisterStep3StudentView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        try:
+            pending = get_verified_pending_registration(request.data.get('registration_id'))
+        except PendingRegistrationError as exc:
+            return Response({'error': str(exc)}, status=exc.status_code)
+
+        if pending.role != User.Role.STUDENT:
+            return Response({'error': 'Student registration not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not pending_has_personal_details(pending):
+            return Response(
+                {'error': 'Please complete your personal details first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = RegisterStep3StudentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user = request.user
-        if user.role != User.Role.STUDENT:
-            return Response({'error': 'Student not found.'}, status=status.HTTP_404_NOT_FOUND)
-
-
-        profile, _ = StudentProfile.objects.get_or_create(user=user)
-
         provided_university = data.get('university', '')
         provided_university_email = (data.get('university_email') or '').strip().lower()
 
-        profile.university = provided_university
-        profile.course = data.get('course', '')
-        profile.year_of_study = data.get('year_of_study')
-
-        candidate_university_email = provided_university_email or user.email.lower()
+        candidate_university_email = provided_university_email or pending.email.lower()
         validation = (
             validate_university_email(candidate_university_email)
             if candidate_university_email
@@ -346,31 +403,58 @@ class RegisterStep3StudentView(views.APIView):
                 {'error': validation['error']},
                 status=validation.get('status_code', status.HTTP_400_BAD_REQUEST),
             )
-        
-        if validation['ok'] and university_email_is_verified_elsewhere(candidate_university_email, user):
+
+        if validation['ok'] and university_email_is_verified_elsewhere(candidate_university_email, None):
             return Response(
                 {'error': 'This university email is already verified on another StudySpace account.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if display_name_is_reserved_for_pending(pending.display_name, pending):
+            return Response(
+                {'display_name': ['This username is already taken.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        profile.university_email = ''
-        profile.university_verified = False
-        profile.university_verified_at = None
+        with transaction.atomic():
+            if User.objects.filter(email=pending.email).exists():
+                pending.delete()
+                return Response(
+                    {'error': 'An account with this email already exists.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        if (
-            user.is_email_verified
-            and candidate_university_email == user.email.lower()
-            and validation['ok']
-        ):
-            profile.university = validation['university_name']
-            profile.university_email = candidate_university_email
-            profile.university_verified = True
-            profile.university_verified_at = timezone.now()
-        elif provided_university_email:
-            profile.university_email = provided_university_email
+            user = create_user_from_pending(pending)
 
-        profile.save()
+            profile = StudentProfile(
+                user=user,
+                university=provided_university,
+                course=data.get('course', ''),
+                year_of_study=data.get('year_of_study'),
+                university_email='',
+                university_verified=False,
+                university_verified_at=None,
+            )
+
+            if (
+                user.is_email_verified
+                and candidate_university_email == user.email.lower()
+                and validation['ok']
+            ):
+                profile.university = validation['university_name']
+                profile.university_email = candidate_university_email
+                profile.university_verified = True
+                profile.university_verified_at = timezone.now()
+            elif provided_university_email:
+                profile.university_email = provided_university_email
+
+            profile.save()
+            pending.delete()
+
+        try:
+            create_welcome_conversation_for_user(user)
+        except Exception as e:
+            print("WELCOME MESSAGE ERROR:", repr(e))
 
         user_data = UserSerializer(user).data
         user_data['student_profile'] = StudentProfileSerializer(profile).data
@@ -384,52 +468,82 @@ class RegisterStep3StudentView(views.APIView):
 
 
 class RegisterTutorStep3View(views.APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        try:
+            pending = get_verified_pending_registration(request.data.get('registration_id'))
+        except PendingRegistrationError as exc:
+            return Response({'error': str(exc)}, status=exc.status_code)
+
+        if pending.role != User.Role.TUTOR:
+            return Response({'error': 'Tutor registration not found.'}, status=status.HTTP_404_NOT_FOUND)
+
         serializer = RegisterTutorStep3Serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user = request.user
-        if user.role != User.Role.TUTOR:
-            return Response({'error': 'Tutor not found.'}, status=status.HTTP_404_NOT_FOUND)
+        pending.company_email = data['company_email'].strip().lower()
+        pending.subjects = data['subjects']
+        pending.save(update_fields=['company_email', 'subjects', 'updated_at'])
 
+        return Response({
+            'message': 'Subjects and email saved.',
+            'registration_id': str(pending.id),
+        })
 
-        profile, _ = TutorProfile.objects.get_or_create(user=user)
-        profile.company_email = data['company_email']
-        profile.subjects = data['subjects']
-        profile.save()
-
-        return Response({'message': 'Subjects and email saved.', 'user_id': str(user.id)})
 
 
 class RegisterTutorStep4View(views.APIView):
     """
-    Tutor step 4 — rate, experience, personal statement, and approximate location.
-    Location is now collected here so students can see where the tutor is based
-    when browsing tutor cards / profiles.
+    Tutor step 4 - rate, experience, personal statement, and approximate location.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        try:
+            pending = get_verified_pending_registration(request.data.get('registration_id'))
+        except PendingRegistrationError as exc:
+            return Response({'error': str(exc)}, status=exc.status_code)
+
+        if pending.role != User.Role.TUTOR:
+            return Response({'error': 'Tutor registration not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not pending_has_personal_details(pending):
+            return Response(
+                {'error': 'Please complete your personal details first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not pending.company_email or not pending.subjects:
+            return Response(
+                {'error': 'Please complete your tutor subjects and email first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = RegisterTutorStep4Serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        try:
-            profile = request.user.tutor_profile
-        except TutorProfile.DoesNotExist:
-            return Response({'error': 'Tutor profile not found.'}, status=status.HTTP_404_NOT_FOUND)
+        pending.hourly_rate = data['hourly_rate']
+        pending.experience_years = data['experience_years']
+        pending.personal_statement = data.get('personal_statement', '')
+        pending.location_city = (data.get('location_city') or '').strip()
+        pending.location_postcode_area = (data.get('location_postcode_area') or '').strip().upper()
+        pending.save(update_fields=[
+            'hourly_rate',
+            'experience_years',
+            'personal_statement',
+            'location_city',
+            'location_postcode_area',
+            'updated_at',
+        ])
 
-        profile.hourly_rate = data['hourly_rate']
-        profile.experience_years = data['experience_years']
-        profile.personal_statement = data.get('personal_statement', '')
-        profile.location_city = (data.get('location_city') or '').strip()
-        profile.location_postcode_area = (data.get('location_postcode_area') or '').strip().upper()
-        profile.save()
+        return Response({
+            'message': 'Rate, experience, and location saved.',
+            'registration_id': str(pending.id),
+        })
 
-        return Response({'message': 'Rate, experience, and location saved.', 'user_id': str(profile.user_id)})
 
 
 class LoginView(views.APIView):

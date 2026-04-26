@@ -102,6 +102,7 @@ export default function Messages() {
         [conversations, conversationId, draftConversation, selectedConversation]
     );
 
+    const conversationReadOnly = activeConversation?.allow_replies === false;
 
     const fetchConversations = async () => {
         const res = await api.get('/messages/conversations/');
@@ -349,7 +350,7 @@ export default function Messages() {
     };
 
     const sendTyping = (isTyping) => {
-        if (socketRef.current?.readyState === WebSocket.OPEN) {
+        if (!conversationReadOnly && socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ type: 'typing', is_typing: isTyping }));
         }
     };
@@ -366,10 +367,15 @@ export default function Messages() {
         const text = body.trim();
         if (!text || !conversationId) return;
 
+        if (conversationReadOnly) {
+            setError('This StudySpace admin conversation is read-only.');
+            return;
+        }
+
         setBody('');
         sendTyping(false);
 
-        if (socketRef.current?.readyState === WebSocket.OPEN) {
+        if (!conversationReadOnly && socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ type: 'message', body: text }));
             return;
         }
@@ -380,6 +386,7 @@ export default function Messages() {
         setMessages(prev => [...prev, res.data]);
         await fetchConversations();
     };
+
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -703,18 +710,25 @@ export default function Messages() {
                                 borderColor: 'divider',
                                 bgcolor: 'background.paper',
                             }}>
+                                {conversationReadOnly && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                        This StudySpace admin conversation is read-only.
+                                    </Typography>
+                                )}
+
                                 <TextField
                                     fullWidth
                                     multiline
                                     maxRows={4}
-                                    placeholder="Write a message"
+                                    placeholder={conversationReadOnly ? 'Read-only conversation' : 'Write a message'}
                                     value={body}
                                     onChange={handleBodyChange}
                                     onKeyDown={handleKeyDown}
+                                    disabled={conversationReadOnly}
                                     InputProps={{
                                         endAdornment: (
                                             <InputAdornment position="end">
-                                                <IconButton color="primary" onClick={sendMessage} disabled={!body.trim()}>
+                                                <IconButton color="primary" onClick={sendMessage} disabled={conversationReadOnly || !body.trim()}>
                                                     <Send />
                                                 </IconButton>
                                             </InputAdornment>
@@ -722,6 +736,7 @@ export default function Messages() {
                                     }}
                                 />
                             </Box>
+
                         </>
                     ) : (
                         <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', p: 3 }}>

@@ -63,18 +63,40 @@ class User(AbstractUser):
 
 class PendingRegistration(models.Model):
     """
-    Holds an in-flight signup BEFORE the email code is verified.
-    See views.py for the full flow. TTL is 30 minutes.
+    Holds an in-flight signup until the full registration flow is complete.
+    A real User is created only after the final student/tutor step succeeds.
     """
-    TTL_MINUTES = 30
+    TTL_MINUTES = 60
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     hashed_password = models.CharField(max_length=256)
     role = models.CharField(max_length=10, choices=User.Role.choices, default=User.Role.STUDENT)
     code = models.CharField(max_length=6)
-    attempts = models.PositiveSmallIntegerField(default=0,
-                                                 help_text="Number of failed verification attempts.")
+    attempts = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Number of failed verification attempts.",
+    )
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+
+    first_name = models.CharField(max_length=50, blank=True)
+    last_name = models.CharField(max_length=50, blank=True)
+    display_name = models.CharField(max_length=30, blank=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+
+    university = models.CharField(max_length=200, blank=True)
+    university_email = models.EmailField(blank=True, default='')
+    course = models.CharField(max_length=200, blank=True)
+    year_of_study = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    company_email = models.EmailField(blank=True, default='')
+    subjects = models.JSONField(default=list, blank=True)
+    hourly_rate = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    experience_years = models.PositiveSmallIntegerField(null=True, blank=True)
+    personal_statement = models.TextField(blank=True)
+    location_city = models.CharField(max_length=100, blank=True)
+    location_postcode_area = models.CharField(max_length=10, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -90,6 +112,10 @@ class PendingRegistration(models.Model):
     @property
     def is_expired(self):
         return timezone.now() > self.created_at + timezone.timedelta(minutes=self.TTL_MINUTES)
+
+    @property
+    def is_email_verified(self):
+        return self.email_verified_at is not None
 
     @staticmethod
     def generate_code():

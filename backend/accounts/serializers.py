@@ -98,13 +98,11 @@ class RegisterStep2Serializer(serializers.Serializer):
 
         return value
 
-
-
 class RegisterStep3StudentSerializer(serializers.Serializer):
     university = serializers.CharField(required=False, allow_blank=True)
     university_email = serializers.EmailField(required=False, allow_blank=True)
     course = serializers.CharField(required=False, allow_blank=True)
-    year_of_study = serializers.IntegerField(required=False)
+    year_of_study = serializers.IntegerField(required=False, allow_null=True)
 
 
 class RegisterTutorStep3Serializer(serializers.Serializer):

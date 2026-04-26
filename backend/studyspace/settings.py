@@ -109,6 +109,8 @@ MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+STUDYSPACE_ADMIN_EMAIL = os.environ.get('STUDYSPACE_ADMIN_EMAIL', 'admin@studyspace.com')
+
 
 # CORS
 CORS_ALLOWED_ORIGINS = [

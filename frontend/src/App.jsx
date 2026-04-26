@@ -62,7 +62,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={user ? <Navigate to={getDashboardRoute()} /> : <Landing />} />
           <Route path="/login" element={user ? <Navigate to={getDashboardRoute()} /> : <Login />} />
-          <Route path="/signup" element={user ? <Navigate to={getDashboardRoute()} /> : <SignUp />} />
+          <Route path="/signup" element={<SignUp />} />
 
           {/* Student */}
           <Route path="/dashboard" element={<ProtectedRoute roles={['student']}><StudentDashboard /></ProtectedRoute>} />

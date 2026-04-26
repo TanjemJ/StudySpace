@@ -97,7 +97,7 @@ const ALLOWED_EXTS = /\.(pdf|jpg|jpeg|png)$/i;
 
 export default function SignUp() {
   const navigate = useNavigate();
-  const { updateUser, fetchFullProfile } = useAuth();
+  const { user, updateUser, fetchFullProfile } = useAuth();
 
   const [role, setRole] = useState('student');
   const [step, setStep] = useState(0);
@@ -147,27 +147,36 @@ export default function SignUp() {
 
   const steps = role === 'student' ? studentSteps : tutorSteps;
 
+  useEffect(() => {
+  const saved = loadSessionState();
+  const hasActiveSignup = Boolean(saved?.registrationId || saved?.userId);
+
+  if (user && !hasActiveSignup) {
+    if (user.role === 'admin') {
+      navigate('/admin-dashboard', { replace: true });
+    } else if (user.role === 'tutor') {
+      navigate('/tutor-dashboard', { replace: true });
+    } else {
+      navigate('/dashboard', { replace: true });
+    }
+  }
+}, [user, navigate]);
+
+
   // ---- Session resume on mount ----
   useEffect(() => {
     const saved = loadSessionState();
     if (!saved) return;
 
-    if (saved.registrationId && !saved.userId) {
+    if (saved.registrationId) {
       setEmail(saved.email || '');
       setRole(saved.role || 'student');
       setRegistrationId(saved.registrationId);
-      setStep(1);
+      setUserId(null);
+      setStep(saved.step || 1);
       setResumedBanner(true);
-      return;
     }
 
-    if (saved.userId) {
-      setEmail(saved.email || '');
-      setRole(saved.role || 'student');
-      setUserId(saved.userId);
-      setStep(saved.step || 2);
-      setResumedBanner(true);
-    }
   }, []);
 
   useEffect(() => {
@@ -224,9 +233,8 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       const res = await api.post('/auth/register/verify-code/', { email, code });
-      if (res.data.user_id) setUserId(res.data.user_id);
-      if (res.data.tokens) localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
-      if (res.data.user) updateUser(res.data.user);
+      if (res.data.registration_id) setRegistrationId(res.data.registration_id);
+      setUserId(null);
       setStep(2);
     } catch (err) {
       setError(err.response?.data?.error || 'Verification failed.');
@@ -247,6 +255,7 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       await api.post('/auth/register/step2/', {
+        registration_id: registrationId,
         first_name: firstName,
         last_name: lastName,
         display_name: displayName,
@@ -265,24 +274,42 @@ export default function SignUp() {
   };
 
   const handleStudentStep3 = async () => {
-    setError(''); setLoading(true);
+    setError('');
+    setLoading(true);
+
     try {
-      const res = await api.post('/auth/register/step3/student/', {
+      const payload = {
+        registration_id: registrationId,
         university,
         university_email: universityEmail,
         course,
-        year_of_study: yearOfStudy ? parseInt(yearOfStudy, 10) : null,
-      });
+      };
+
+      if (yearOfStudy) {
+        payload.year_of_study = parseInt(yearOfStudy, 10);
+      }
+
+      const res = await api.post('/auth/register/step3/student/', payload);
       await finishSignup(res);
-    } catch {
-      setError('Something went wrong.');
-    } finally { setLoading(false); }
+    } catch (err) {
+      const data = err.response?.data || {};
+      const msg =
+        data.error ||
+        (Array.isArray(data.year_of_study) && data.year_of_study[0]) ||
+        (Array.isArray(data.university_email) && data.university_email[0]) ||
+        'Something went wrong.';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
   };
+
 
   const handleTutorStep3 = async () => {
     setError(''); setLoading(true);
     try {
       await api.post('/auth/register/step3/tutor/', {
+        registration_id: registrationId,
         company_email: companyEmail,
         subjects: subjects.split(',').map(s => s.trim()).filter(Boolean),
       });
@@ -305,6 +332,7 @@ export default function SignUp() {
     setError(''); setLoading(true);
     try {
       await api.post('/auth/register/step4/tutor/', {
+        registration_id: registrationId,
         hourly_rate: parseFloat(hourlyRate),
         experience_years: parseInt(experience, 10),
         personal_statement: personalStatement,
@@ -329,6 +357,7 @@ export default function SignUp() {
     }
     setError(''); setLoading(true);
     const formData = new FormData();
+    formData.append('registration_id', registrationId);
     formData.append('document_count', documents.length);
     documents.forEach((d, i) => {
       formData.append(`document_${i}`, d.file);

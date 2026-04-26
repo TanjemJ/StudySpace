@@ -79,6 +79,13 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         body = (content.get('body') or '').strip()
         if not body:
             return
+        
+        if not await self.conversation_allows_replies():
+            await self.send_json({
+                'type': 'error',
+                'message': 'This conversation is read-only.',
+            })
+            return
 
         try:
             message_data = await self.create_message(body)
@@ -134,6 +141,14 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             id=self.conversation_id,
             user_two=self.user,
         ).exists()
+    
+    @database_sync_to_async
+    def conversation_allows_replies(self):
+        return Conversation.objects.filter(
+            id=self.conversation_id,
+            allow_replies=True,
+        ).exists()
+
 
     @database_sync_to_async
     def mark_conversation_read(self):
