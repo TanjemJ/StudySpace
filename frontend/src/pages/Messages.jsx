@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-    Alert, Avatar, Box, Button, CircularProgress, Container, Divider,
+    Alert, Avatar, Box, CircularProgress, Container, Divider,
     IconButton, InputAdornment, List, ListItemAvatar, ListItemButton,
-    ListItemText, Paper, Stack, TextField, Typography,
+    ListItemText, Menu, MenuItem, Paper, Stack, TextField, Tooltip, Typography,
 } from '@mui/material';
 import {
     Send, Search, Message as MessageIcon, ArrowBack,
+    MoreVert, Edit, Delete, ContentCopy, Check, Close,
 } from '@mui/icons-material';
+
 
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,12 +24,47 @@ function getWsUrl(conversationId) {
     return `${wsProtocol}://${host}/ws/messages/${conversationId}/?token=${token}`;
 }
 
-
-
 function displayUserName(user) {
     if (!user) return 'Unknown user';
     return user.display_name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown user';
 }
+
+function isSameCalendarDay(a, b) {
+    const first = new Date(a);
+    const second = new Date(b);
+
+    return (
+        first.getFullYear() === second.getFullYear() &&
+        first.getMonth() === second.getMonth() &&
+        first.getDate() === second.getDate()
+    );
+}
+
+function formatDateSeparator(value) {
+    const date = new Date(value);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    if (isSameCalendarDay(date, today)) return 'Today';
+    if (isSameCalendarDay(date, yesterday)) return 'Yesterday';
+
+    return date.toLocaleDateString([], {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+    });
+}
+
+function canModifyMessage(message, user) {
+    if (!message || !user || message.is_deleted) return false;
+    if (String(message.sender.id) !== String(user.id)) return false;
+
+    const createdAt = new Date(message.created_at).getTime();
+    return Date.now() - createdAt <= 3 * 60 * 1000;
+}
+
 
 export default function Messages() {
     const { conversationId } = useParams();
@@ -45,6 +82,12 @@ export default function Messages() {
     const [typingUser, setTypingUser] = useState(null);
     const [draftConversation, setDraftConversation] = useState(null);
     const [selectedConversation, setSelectedConversation] = useState(null);
+    const [messageMenuAnchor, setMessageMenuAnchor] = useState(null);
+    const [selectedMessage, setSelectedMessage] = useState(null);
+    const [editingMessageId, setEditingMessageId] = useState(null);
+    const [editingBody, setEditingBody] = useState('');
+    const [messageActionLoading, setMessageActionLoading] = useState(false);
+
 
 
     const socketRef = useRef(null);
@@ -80,6 +123,83 @@ export default function Messages() {
             setChatLoading(false);
         }
     };
+
+    const applyMessageUpdate = (updatedMessage) => {
+        setMessages(prev => prev.map(message => (
+            message.id === updatedMessage.id ? updatedMessage : message
+        )));
+        fetchConversations().catch(() => { });
+    };
+
+    const openMessageMenu = (event, message) => {
+        setMessageMenuAnchor(event.currentTarget);
+        setSelectedMessage(message);
+    };
+
+    const closeMessageMenu = () => {
+        setMessageMenuAnchor(null);
+        setSelectedMessage(null);
+    };
+
+    const copySelectedMessage = async () => {
+        if (!selectedMessage || selectedMessage.is_deleted) return;
+
+        try {
+            await navigator.clipboard.writeText(selectedMessage.body);
+            closeMessageMenu();
+        } catch {
+            setError('Could not copy message.');
+        }
+    };
+
+    const startEditingSelectedMessage = () => {
+        if (!selectedMessage) return;
+
+        setEditingMessageId(selectedMessage.id);
+        setEditingBody(selectedMessage.body);
+        closeMessageMenu();
+    };
+
+    const cancelEditing = () => {
+        setEditingMessageId(null);
+        setEditingBody('');
+    };
+
+    const saveEditedMessage = async () => {
+        const text = editingBody.trim();
+        if (!text || !conversationId || !editingMessageId) return;
+
+        setMessageActionLoading(true);
+        try {
+            const res = await api.patch(`/messages/conversations/${conversationId}/messages/${editingMessageId}/`, {
+                body: text,
+            });
+            applyMessageUpdate(res.data);
+            cancelEditing();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Could not edit message.');
+        } finally {
+            setMessageActionLoading(false);
+        }
+    };
+
+    const deleteSelectedMessage = async () => {
+        if (!selectedMessage || !conversationId) return;
+
+        setMessageActionLoading(true);
+        try {
+            const res = await api.delete(`/messages/conversations/${conversationId}/messages/${selectedMessage.id}/`);
+            applyMessageUpdate(res.data);
+            closeMessageMenu();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Could not delete message.');
+        } finally {
+            setMessageActionLoading(false);
+        }
+    };
+
+
+
 
     useEffect(() => {
         setLoading(true);
@@ -138,6 +258,10 @@ export default function Messages() {
                         fetchConversations().catch(() => { });
                     }
 
+                    if (data.type === 'message_updated') {
+                        applyMessageUpdate(data.message);
+                    }
+
                     if (data.type === 'typing') {
                         setTypingUser(data.is_typing ? data.user_id : null);
                     }
@@ -181,10 +305,18 @@ export default function Messages() {
         };
     }, [conversationId]);
 
-
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages.length]);
+        if (chatLoading) return;
+
+        const frame = window.requestAnimationFrame(() => {
+            bottomRef.current?.scrollIntoView({
+                behavior: 'auto',
+                block: 'end',
+            });
+        });
+
+        return () => window.cancelAnimationFrame(frame);
+    }, [conversationId, chatLoading, messages.length]);
 
     useEffect(() => {
         if (!search.trim()) {
@@ -272,8 +404,20 @@ export default function Messages() {
 
             {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-            <Paper sx={{ height: '72vh', display: 'grid', gridTemplateColumns: { xs: '1fr', md: '320px 1fr' }, overflow: 'hidden' }}>
-                <Box sx={{ borderRight: { md: '1px solid' }, borderColor: 'divider', display: { xs: conversationId ? 'none' : 'block', md: 'block' } }}>
+            <Paper sx={{
+                height: { xs: 'calc(100vh - 150px)', md: '72vh' },
+                minHeight: { xs: 520, md: 560 },
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '320px 1fr' },
+                overflow: 'hidden',
+            }}>
+                <Box sx={{
+                    borderRight: { md: '1px solid' },
+                    borderColor: 'divider',
+                    display: { xs: conversationId ? 'none' : 'flex', md: 'flex' },
+                    flexDirection: 'column',
+                    minHeight: 0,
+                }}>
                     <Box sx={{ p: 2 }}>
                         <TextField
                             fullWidth
@@ -313,7 +457,17 @@ export default function Messages() {
                         </>
                     )}
 
-                    <List sx={{ overflow: 'auto', height: searchResults.length ? 'calc(72vh - 210px)' : 'calc(72vh - 73px)' }}>
+                    <List sx={{
+                        overflowY: 'auto',
+                        flex: 1,
+                        minHeight: 0,
+                        py: 0,
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                        '&::-webkit-scrollbar': {
+                            display: 'none',
+                        },
+                    }}>
                         {conversations.length === 0 ? (
                             <Box sx={{ p: 3, textAlign: 'center' }}>
                                 <MessageIcon sx={{ fontSize: 36, color: 'text.secondary', mb: 1 }} />
@@ -357,7 +511,11 @@ export default function Messages() {
                                             )}
                                         </Stack>
                                     }
-                                    secondary={conversation.last_message?.body || 'No messages yet.'}
+                                    secondary={
+                                        conversation.last_message?.is_deleted
+                                            ? 'Message deleted'
+                                            : conversation.last_message?.body || 'No messages yet.'
+                                    }
                                     secondaryTypographyProps={{
                                         noWrap: true,
                                         fontWeight: conversation.unread_count ? 600 : 400,
@@ -368,10 +526,25 @@ export default function Messages() {
                     </List>
                 </Box>
 
-                <Box sx={{ display: { xs: conversationId ? 'flex' : 'none', md: 'flex' }, flexDirection: 'column', minWidth: 0 }}>
+                <Box sx={{
+                    display: { xs: conversationId ? 'flex' : 'none', md: 'flex' },
+                    flexDirection: 'column',
+                    minWidth: 0,
+                    minHeight: 0,
+                    overflow: 'hidden',
+                }}>
                     {conversationId ? (
                         <>
-                            <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <Box sx={{
+                                px: 2,
+                                py: 1.5,
+                                borderBottom: '1px solid',
+                                borderColor: 'divider',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.5,
+                                flexShrink: 0,
+                            }}>
                                 <IconButton sx={{ display: { md: 'none' } }} onClick={() => navigate('/messages')}>
                                     <ArrowBack />
                                 </IconButton>
@@ -386,56 +559,150 @@ export default function Messages() {
                                 </Box>
                             </Box>
 
-                            <Box sx={{ flex: 1, overflow: 'auto', p: 2, bgcolor: 'background.default' }}>
+                            <Box sx={{
+                                flex: 1,
+                                minHeight: 0,
+                                overflowY: 'auto',
+                                overflowX: 'hidden',
+                                p: 2,
+                                bgcolor: 'background.default',
+                                scrollbarWidth: 'none',
+                                msOverflowStyle: 'none',
+                                '&::-webkit-scrollbar': {
+                                    display: 'none',
+                                },
+                            }}>
+
                                 {chatLoading ? (
                                     <CircularProgress size={24} />
                                 ) : (
                                     <Stack spacing={1.25}>
-                                        {messages.map((message) => {
-                                            const mine = message.sender.id === user.id;
+                                        {messages.map((message, index) => {
+                                            const mine = String(message.sender.id) === String(user.id);
+                                            const isEditing = editingMessageId === message.id;
+                                            const showDateSeparator =
+                                                index === 0 || !isSameCalendarDay(messages[index - 1].created_at, message.created_at);
+
                                             return (
-                                                <Box
-                                                    key={message.id}
-                                                    sx={{
-                                                        display: 'flex',
-                                                        justifyContent: mine ? 'flex-end' : 'flex-start',
-                                                    }}
-                                                >
+                                                <Box key={message.id}>
+                                                    {showDateSeparator && (
+                                                        <Box sx={{ display: 'flex', justifyContent: 'center', my: 1 }}>
+                                                            <Typography
+                                                                variant="caption"
+                                                                sx={{
+                                                                    px: 1.5,
+                                                                    py: 0.5,
+                                                                    borderRadius: 999,
+                                                                    bgcolor: 'action.hover',
+                                                                    color: 'text.secondary',
+                                                                }}
+                                                            >
+                                                                {formatDateSeparator(message.created_at)}
+                                                            </Typography>
+                                                        </Box>
+                                                    )}
+
                                                     <Box
                                                         sx={{
-                                                            maxWidth: '72%',
-                                                            px: 1.5,
-                                                            py: 1,
-                                                            borderRadius: 2,
-                                                            bgcolor: mine ? 'primary.main' : 'white',
-                                                            color: mine ? 'primary.contrastText' : 'text.primary',
-                                                            border: mine ? 'none' : '1px solid',
-                                                            borderColor: 'divider',
+                                                            display: 'flex',
+                                                            justifyContent: mine ? 'flex-end' : 'flex-start',
+                                                            alignItems: 'flex-end',
+                                                            gap: 0.5,
                                                         }}
                                                     >
-                                                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                                                            {message.body}
-                                                        </Typography>
-                                                        <Typography
-                                                            variant="caption"
+                                                        {!mine && !message.is_deleted && (
+                                                            <Tooltip title="Message options">
+                                                                <IconButton size="small" onClick={(event) => openMessageMenu(event, message)}>
+                                                                    <MoreVert fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                        )}
+
+                                                        <Box
                                                             sx={{
-                                                                display: 'block',
-                                                                mt: 0.5,
-                                                                color: mine ? 'rgba(255,255,255,0.75)' : 'text.secondary',
+                                                                maxWidth: '72%',
+                                                                px: 1.5,
+                                                                py: 1,
+                                                                borderRadius: 2,
+                                                                bgcolor: mine ? 'primary.main' : 'white',
+                                                                color: mine ? 'primary.contrastText' : 'text.primary',
+                                                                border: mine ? 'none' : '1px solid',
+                                                                borderColor: 'divider',
                                                             }}
                                                         >
-                                                            {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </Typography>
+                                                            {isEditing ? (
+                                                                <Stack direction="row" spacing={1} alignItems="flex-start">
+                                                                    <TextField
+                                                                        size="small"
+                                                                        multiline
+                                                                        maxRows={4}
+                                                                        value={editingBody}
+                                                                        onChange={(event) => setEditingBody(event.target.value)}
+                                                                        autoFocus
+                                                                        sx={{
+                                                                            minWidth: 220,
+                                                                            bgcolor: 'background.paper',
+                                                                            borderRadius: 1,
+                                                                        }}
+                                                                    />
+                                                                    <IconButton size="small" onClick={saveEditedMessage} disabled={messageActionLoading || !editingBody.trim()}>
+                                                                        <Check fontSize="small" />
+                                                                    </IconButton>
+                                                                    <IconButton size="small" onClick={cancelEditing}>
+                                                                        <Close fontSize="small" />
+                                                                    </IconButton>
+                                                                </Stack>
+                                                            ) : (
+                                                                <Typography
+                                                                    variant="body2"
+                                                                    sx={{
+                                                                        whiteSpace: 'pre-wrap',
+                                                                        overflowWrap: 'anywhere',
+                                                                        fontStyle: message.is_deleted ? 'italic' : 'normal',
+                                                                        opacity: message.is_deleted ? 0.75 : 1,
+                                                                    }}
+                                                                >
+                                                                    {message.is_deleted ? 'This message was deleted.' : message.body}
+                                                                </Typography>
+                                                            )}
+
+                                                            <Typography
+                                                                variant="caption"
+                                                                sx={{
+                                                                    display: 'block',
+                                                                    mt: 0.5,
+                                                                    color: mine ? 'rgba(255,255,255,0.75)' : 'text.secondary',
+                                                                }}
+                                                            >
+                                                                {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                {message.edited_at && !message.is_deleted ? ' - edited' : ''}
+                                                            </Typography>
+                                                        </Box>
+
+                                                        {mine && !message.is_deleted && (
+                                                            <Tooltip title="Message options">
+                                                                <IconButton size="small" onClick={(event) => openMessageMenu(event, message)}>
+                                                                    <MoreVert fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                        )}
                                                     </Box>
                                                 </Box>
                                             );
                                         })}
+
                                         <div ref={bottomRef} />
                                     </Stack>
                                 )}
                             </Box>
 
-                            <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                            <Box sx={{
+                                flexShrink: 0,
+                                p: 2,
+                                borderTop: '1px solid',
+                                borderColor: 'divider',
+                                bgcolor: 'background.paper',
+                            }}>
                                 <TextField
                                     fullWidth
                                     multiline
@@ -469,6 +736,37 @@ export default function Messages() {
                     )}
                 </Box>
             </Paper>
+            <Menu
+                anchorEl={messageMenuAnchor}
+                open={Boolean(messageMenuAnchor)}
+                onClose={closeMessageMenu}
+            >
+                <MenuItem onClick={copySelectedMessage} disabled={!selectedMessage || selectedMessage.is_deleted}>
+                    <ContentCopy sx={{ mr: 1, fontSize: 18 }} />
+                    Copy
+                </MenuItem>
+
+                {selectedMessage && String(selectedMessage.sender.id) === String(user.id) && (
+                    <MenuItem
+                        onClick={startEditingSelectedMessage}
+                        disabled={!canModifyMessage(selectedMessage, user) || messageActionLoading}
+                    >
+                        <Edit sx={{ mr: 1, fontSize: 18 }} />
+                        Edit
+                    </MenuItem>
+                )}
+
+                {selectedMessage && String(selectedMessage.sender.id) === String(user.id) && (
+                    <MenuItem
+                        onClick={deleteSelectedMessage}
+                        disabled={!canModifyMessage(selectedMessage, user) || messageActionLoading}
+                        sx={{ color: 'error.main' }}
+                    >
+                        <Delete sx={{ mr: 1, fontSize: 18 }} />
+                        Delete
+                    </MenuItem>
+                )}
+            </Menu>
         </Container>
     );
 }

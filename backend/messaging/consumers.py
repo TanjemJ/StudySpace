@@ -26,7 +26,11 @@ def serialize_chat_message(message):
         },
         'body': message.body,
         'created_at': message.created_at.isoformat(),
+        'edited_at': message.edited_at.isoformat() if message.edited_at else None,
+        'deleted_at': message.deleted_at.isoformat() if message.deleted_at else None,
+        'is_deleted': message.is_deleted,
     }
+
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
@@ -102,6 +106,14 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             'type': 'message',
             'message': message,
         })
+
+    async def chat_message_updated(self, event):
+        await self.send_json({
+            'type': 'message_updated',
+            'message': event['message'],
+        })
+
+
 
     async def typing_event(self, event):
         if event['user_id'] == str(self.user.id):

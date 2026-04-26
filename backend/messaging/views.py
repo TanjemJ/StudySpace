@@ -22,6 +22,29 @@ def user_can_access_conversation(user, conversation):
     return conversation.user_one_id == user.id or conversation.user_two_id == user.id
 
 
+def serialize_message_for_socket(message):
+    sender = message.sender
+
+    return {
+        'id': str(message.id),
+        'conversation': str(message.conversation_id),
+        'sender': {
+            'id': str(sender.id),
+            'display_name': sender.display_name,
+            'first_name': sender.first_name,
+            'last_name': sender.last_name,
+            'role': sender.role,
+            'avatar_url': sender.avatar.url if sender.avatar else '',
+        },
+        'body': message.body,
+        'created_at': message.created_at.isoformat(),
+        'edited_at': message.edited_at.isoformat() if message.edited_at else None,
+        'deleted_at': message.deleted_at.isoformat() if message.deleted_at else None,
+        'is_deleted': message.is_deleted,
+    }
+
+
+
 class ConversationListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ConversationSerializer
@@ -129,11 +152,77 @@ class MessageListCreateView(views.APIView):
             f'conversation_{conversation.id}',
             {
                 'type': 'chat_message',
-                'message': data,
+                'message': serialize_message_for_socket(message),
             },
         )
 
         return Response(data, status=status.HTTP_201_CREATED)
+
+class MessageDetailView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_message(self, request, conversation_id, message_id):
+        try:
+            message = ChatMessage.objects.select_related(
+                'sender',
+                'conversation__user_one',
+                'conversation__user_two',
+            ).get(id=message_id, conversation_id=conversation_id)
+        except ChatMessage.DoesNotExist:
+            return None
+
+        if not user_can_access_conversation(request.user, message.conversation):
+            return None
+
+        return message
+
+    def patch(self, request, conversation_id, message_id):
+        message = self.get_message(request, conversation_id, message_id)
+        if not message:
+            return Response({'error': 'Message not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not message.can_be_modified_by(request.user):
+            return Response({'error': 'This message can no longer be edited.'}, status=status.HTTP_403_FORBIDDEN)
+
+        body = (request.data.get('body') or '').strip()
+        if not body:
+            return Response({'error': 'Message cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        message.body = body
+        message.edited_at = timezone.now()
+        message.save(update_fields=['body', 'edited_at'])
+
+        data = ChatMessageSerializer(message).data
+        self.broadcast_update(message.conversation_id, serialize_message_for_socket(message))
+
+        return Response(data)
+
+    def delete(self, request, conversation_id, message_id):
+        message = self.get_message(request, conversation_id, message_id)
+        if not message:
+            return Response({'error': 'Message not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not message.can_be_modified_by(request.user):
+            return Response({'error': 'This message can no longer be deleted.'}, status=status.HTTP_403_FORBIDDEN)
+
+        message.body = ''
+        message.deleted_at = timezone.now()
+        message.save(update_fields=['body', 'deleted_at'])
+
+        data = ChatMessageSerializer(message).data
+        self.broadcast_update(message.conversation_id, serialize_message_for_socket(message))
+
+        return Response(data)
+
+    def broadcast_update(self, conversation_id, data):
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f'conversation_{conversation_id}',
+            {
+                'type': 'chat_message_updated',
+                'message': data,
+            },
+        )
 
 
 class MarkConversationReadView(views.APIView):

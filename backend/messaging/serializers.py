@@ -17,11 +17,22 @@ class ChatUserSerializer(serializers.ModelSerializer):
 
 class ChatMessageSerializer(serializers.ModelSerializer):
     sender = ChatUserSerializer(read_only=True)
+    is_deleted = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessage
-        fields = ['id', 'conversation', 'sender', 'body', 'created_at']
-        read_only_fields = ['id', 'conversation', 'sender', 'created_at']
+        fields = [
+            'id', 'conversation', 'sender', 'body',
+            'created_at', 'edited_at', 'deleted_at', 'is_deleted'
+        ]
+        read_only_fields = [
+            'id', 'conversation', 'sender',
+            'created_at', 'edited_at', 'deleted_at', 'is_deleted'
+        ]
+
+    def get_is_deleted(self, obj):
+        return obj.is_deleted
+
 
 
 class ConversationSerializer(serializers.ModelSerializer):

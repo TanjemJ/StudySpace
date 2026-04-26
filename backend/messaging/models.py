@@ -58,14 +58,31 @@ class ConversationParticipant(models.Model):
 
 
 class ChatMessage(models.Model):
+    EDIT_WINDOW_MINUTES = 3
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
     sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_chat_messages')
     body = models.TextField(max_length=2000)
     created_at = models.DateTimeField(auto_now_add=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['created_at']
 
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    def can_be_modified_by(self, user):
+        if not user or not user.is_authenticated:
+            return False
+        if self.sender_id != user.id or self.is_deleted:
+            return False
+        return timezone.now() <= self.created_at + timezone.timedelta(minutes=self.EDIT_WINDOW_MINUTES)
+
     def __str__(self):
-        return f'{self.sender.display_name}: {self.body[:40]}'
+        preview = 'deleted' if self.is_deleted else self.body[:40]
+        return f'{self.sender.display_name}: {preview}'
+
