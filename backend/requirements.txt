@@ -11,3 +11,4 @@ dnspython==2.7.0
 google-auth==2.49.2
 PyJWT[crypto]==2.12.1
 channels[daphne]
+channels-redis==4.3.0

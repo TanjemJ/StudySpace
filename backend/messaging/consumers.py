@@ -27,7 +27,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             return
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
-        add_user_to_conversation(self.conversation_id, self.user.id)
+        add_user_to_conversation(self.conversation_id, self.user.id, self.channel_name)
         await self.mark_conversation_read()
         await self.accept()
 
@@ -35,7 +35,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
         if hasattr(self, 'conversation_id') and hasattr(self, 'user'):
-            remove_user_from_conversation(self.conversation_id, self.user.id)
+            remove_user_from_conversation(self.conversation_id, self.user.id, self.channel_name)
 
     async def receive_json(self, content):
         event_type = content.get('type')

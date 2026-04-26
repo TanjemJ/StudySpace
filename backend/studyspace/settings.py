@@ -7,9 +7,23 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
+def env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def env_list(name, default):
+    value = os.environ.get(name)
+    if not value:
+        return default
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+DEBUG = env_bool('DEBUG', True)
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1'])
 
 INSTALLED_APPS = [
     'daphne',
@@ -65,11 +79,25 @@ WSGI_APPLICATION = 'studyspace.wsgi.application'
 
 ASGI_APPLICATION = 'studyspace.asgi.application'
 
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
-    },
-}
+USE_REDIS_CHANNEL_LAYER = env_bool('USE_REDIS_CHANNEL_LAYER', False)
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CHAT_PRESENCE_TTL_SECONDS = int(os.environ.get('CHAT_PRESENCE_TTL_SECONDS', '86400'))
+
+if USE_REDIS_CHANNEL_LAYER:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_URL],
+            },
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
 
 
 # Database — PostgreSQL
@@ -113,10 +141,10 @@ STUDYSPACE_ADMIN_EMAIL = os.environ.get('STUDYSPACE_ADMIN_EMAIL', 'admin@studysp
 
 
 # CORS
-CORS_ALLOWED_ORIGINS = [
+CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-]
+])
 CORS_ALLOW_CREDENTIALS = True
 
 # REST Framework
