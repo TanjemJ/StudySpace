@@ -35,17 +35,19 @@ def university_email_is_verified_elsewhere(email: str, current_user) -> bool:
     return student_exists or tutor_exists
 
 
+class TemporaryDNSLookupError(Exception):
+    pass
+
+
 def domain_has_mail_records(domain: str) -> bool:
     try:
         answers = dns.resolver.resolve(domain, 'MX')
         return len(list(answers)) > 0
-    except (
-        dns.resolver.NoAnswer,
-        dns.resolver.NXDOMAIN,
-        dns.resolver.NoNameservers,
-        dns.exception.Timeout,
-    ):
+    except (dns.exception.Timeout, dns.resolver.LifetimeTimeout, dns.resolver.NoNameservers):
+        raise TemporaryDNSLookupError
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
         return False
+
 
 
 def validate_university_email(email: str) -> dict:
@@ -65,10 +67,20 @@ def validate_university_email(email: str) -> dict:
             'error': 'That university email domain is not recognised by StudySpace.',
         }
 
-    if not domain_has_mail_records(domain):
+    try:
+        has_mail_records = domain_has_mail_records(domain)
+    except TemporaryDNSLookupError:
         return {
             'ok': False,
-            'error': 'That university email domain could not be verified right now. Please try again later.',
+            'error': 'That university email domain could not be checked right now. Please try again in a moment.',
+            'temporary': True,
+            'status_code': 503,
+        }
+
+    if not has_mail_records:
+        return {
+            'ok': False,
+            'error': 'That university email domain does not appear to accept email.',
         }
 
     return {

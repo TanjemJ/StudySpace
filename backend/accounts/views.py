@@ -344,7 +344,7 @@ class RegisterStep3StudentView(views.APIView):
         if provided_university_email and not validation['ok']:
             return Response(
                 {'error': validation['error']},
-                status=status.HTTP_400_BAD_REQUEST,
+                status=validation.get('status_code', status.HTTP_400_BAD_REQUEST),
             )
         
         if validation['ok'] and university_email_is_verified_elsewhere(candidate_university_email, user):
@@ -537,6 +537,7 @@ class GoogleLoginView(views.APIView):
                     credential,
                     google_requests.Request(),
                     settings.GOOGLE_OAUTH_CLIENT_ID,
+                    clock_skew_in_seconds=10,
                 )
             else:
                 payload = _verify_google_access_token(access_token)

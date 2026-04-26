@@ -115,7 +115,10 @@ class SendUniversityVerificationCodeView(views.APIView):
         email = (request.data.get('email') or '').strip().lower()
         validation = validate_university_email(email)
         if not validation['ok']:
-            return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'error': validation['error']},
+                status=validation.get('status_code', status.HTTP_400_BAD_REQUEST),
+            )
         
         if university_email_is_verified_elsewhere(email, user):
             return Response(
@@ -235,8 +238,11 @@ class VerifyUniversityEmailCodeView(views.APIView):
 
         validation = validate_university_email(record.target_email)
         if not validation['ok']:
-            return Response({'error': validation['error']}, status=status.HTTP_400_BAD_REQUEST)
-        
+            return Response(
+                {'error': validation['error']},
+                status=validation.get('status_code', status.HTTP_400_BAD_REQUEST),
+            )
+                
         if university_email_is_verified_elsewhere(record.target_email, user):
             return Response(
                 {'error': 'This university email is already verified on another StudySpace account.'},
