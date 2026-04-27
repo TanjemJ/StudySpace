@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 import {
   Container, Card, CardContent, Typography, TextField, Button, Box, Alert,
-  Divider, Stack, IconButton, InputAdornment,
+  Divider, Stack, IconButton, InputAdornment, CircularProgress, Fade,
 } from '@mui/material';
 import { Visibility, VisibilityOff, Google, Microsoft } from '@mui/icons-material';
 import { PublicClientApplication } from '@azure/msal-browser';
@@ -31,6 +31,12 @@ function GoogleSignInButton({ disabled, onSuccess, onError }) {
   );
 }
 
+function getDashboardRoute(profile) {
+  if (profile?.role === 'admin') return '/admin-dashboard';
+  if (profile?.role === 'tutor') return '/tutor-dashboard';
+  return '/dashboard';
+}
+
 
 export default function Login() {
   const navigate = useNavigate();
@@ -40,8 +46,17 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const microsoftClientId = import.meta.env.VITE_MICROSOFT_CLIENT_ID;
+  const authBusy = loading || redirecting;
+
+  const navigateToDashboard = useCallback((profile) => {
+    setRedirecting(true);
+    window.setTimeout(() => {
+      navigate(getDashboardRoute(profile), { replace: true });
+    }, 350);
+  }, [navigate]);
 
   const microsoftMsalInstance = useMemo(() => {
     if (!microsoftClientId) return null;
@@ -81,8 +96,8 @@ export default function Login() {
         localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
         localStorage.setItem('user', JSON.stringify(res.data.user));
         updateUser(res.data.user);
-        await fetchFullProfile();
-        navigate('/');
+        const profile = await fetchFullProfile();
+        if (!cancelled) navigateToDashboard(profile || res.data.user);
       } catch (err) {
         console.error('Microsoft redirect login error:', err);
         setError(
@@ -101,7 +116,7 @@ export default function Login() {
     return () => {
       cancelled = true;
     };
-  }, [microsoftMsalInstance, updateUser, fetchFullProfile, navigate]);
+  }, [microsoftMsalInstance, updateUser, fetchFullProfile, navigateToDashboard]);
 
 
 
@@ -110,8 +125,8 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
-      navigate('/');
+      const profile = await login(email, password);
+      navigateToDashboard(profile);
     } catch (err) {
       setError(err.response?.data?.error || 'Invalid email or password.');
     } finally {
@@ -131,8 +146,8 @@ export default function Login() {
       localStorage.setItem('tokens', JSON.stringify(res.data.tokens));
       localStorage.setItem('user', JSON.stringify(res.data.user));
       updateUser(res.data.user);
-      await fetchFullProfile();
-      navigate('/');
+      const profile = await fetchFullProfile();
+      navigateToDashboard(profile || res.data.user);
     } catch (err) {
       setError(err.response?.data?.error || 'Google login failed.');
     } finally {
@@ -167,6 +182,43 @@ export default function Login() {
 
   return (
     <Box sx={{ minHeight: '80vh', display: 'flex', alignItems: 'center', bgcolor: 'background.default' }}>
+      <Fade in={authBusy}>
+        <Box
+          aria-live="polite"
+          sx={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: (theme) => theme.zIndex.modal + 1,
+            display: authBusy ? 'flex' : 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: 'rgba(255,255,255,0.76)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <Card
+            elevation={6}
+            sx={{
+              width: 'min(320px, calc(100vw - 48px))',
+              borderRadius: 3,
+              p: 3,
+              textAlign: 'center',
+            }}
+          >
+            <Stack spacing={2} alignItems="center">
+              <CircularProgress size={36} thickness={4} />
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  {redirecting ? 'Taking you to your dashboard' : 'Signing you in'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Preparing your workspace...
+                </Typography>
+              </Box>
+            </Stack>
+          </Card>
+        </Box>
+      </Fade>
       <Container maxWidth="xs">
         <Card sx={{ p: 1 }}>
           <CardContent>
@@ -195,7 +247,7 @@ export default function Login() {
               <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
                 <Button size="small" sx={{ textTransform: 'none' }}>Forgot password?</Button>
               </Box>
-              <Button fullWidth variant="contained" size="large" type="submit" disabled={loading}>
+              <Button fullWidth variant="contained" size="large" type="submit" disabled={authBusy}>
                 {loading ? 'Logging in...' : 'Log in'}
               </Button>
             </form>
@@ -205,7 +257,7 @@ export default function Login() {
               {googleClientId ? (
                 <GoogleOAuthProvider clientId={googleClientId}>
                   <GoogleSignInButton
-                    disabled={loading}
+                    disabled={authBusy}
                     onSuccess={handleGoogleSuccess}
                     onError={() => setError('Google login failed. Please try again.')}
                   />
@@ -219,7 +271,7 @@ export default function Login() {
                 variant="outlined"
                 startIcon={<Microsoft />}
                 sx={{ flex: 1 }}
-                disabled={!microsoftClientId || loading}
+                disabled={!microsoftClientId || authBusy}
                 onClick={handleMicrosoftLogin}
               >
                 Microsoft

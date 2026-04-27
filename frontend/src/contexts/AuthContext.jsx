@@ -39,8 +39,8 @@ export function AuthProvider({ children }) {
     localStorage.setItem('user', JSON.stringify(res.data.user));
     setUser(res.data.user);
     // Fetch full profile including student_profile / tutor_profile
-    await fetchFullProfile();
-    return res.data;
+    const fullProfile = await fetchFullProfile();
+    return fullProfile || res.data.user;
   };
 
   const logout = () => {

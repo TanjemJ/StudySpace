@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import {
   Search, Forum, SmartToy, VerifiedUser, Groups, School, Payments,
-  ExpandMore, FormatQuote, ArrowForward, AccessibilityNew, ShieldOutlined,
+  ExpandMore, ArrowForward, AccessibilityNew, ShieldOutlined,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import Footer from '../components/layout/Footer';
@@ -25,7 +25,7 @@ const features = [
   {
     icon: <SmartToy sx={{ fontSize: 36 }} />,
     title: 'AI Academic Assistant',
-    desc: 'Guided support that helps you think — not generic answers that bypass real understanding.',
+    desc: 'Guided support that helps you think, without generic answers that bypass real understanding.',
   },
   {
     icon: <Payments sx={{ fontSize: 36 }} />,
@@ -62,28 +62,28 @@ const stats = [
   { number: 'UK', label: 'university focus' },
 ];
 
-const testimonials = [
+const scenarios = [
   {
-    quote:
-      'I used the AI assistant for a tricky integration problem. Instead of just giving me the answer, it asked what I had tried — and the question itself helped me see what I had missed.',
-    author: 'Maths student',
-    context: 'Year 2',
+    title: 'A student gets unstuck without copying',
+    desc:
+      'The AI assistant asks what they have tried, explains the concept, and walks through a similar example so they can solve their own work.',
+    context: 'Guided AI support',
   },
   {
-    quote:
-      'Booking was straightforward and I could see exactly which credentials had been checked. As a parent paying for tutoring, that visibility mattered.',
-    author: 'Parent of a student',
-    context: 'A-level top-up',
+    title: 'A parent checks tutor credentials first',
+    desc:
+      'Tutor profiles show verification details clearly before booking, including which checks have been reviewed by the StudySpace team.',
+    context: 'Verified tutoring',
   },
   {
-    quote:
-      'The accessibility toggles are properly built — the dyslexia font and underlined links work everywhere I went. Felt designed-for, not retrofitted.',
-    author: 'Computer Science student',
-    context: 'Year 3',
+    title: 'A learner keeps their accessibility settings',
+    desc:
+      'Text size, contrast, reduced motion, underlined links, dyslexia-friendly font, and stronger focus rings stay consistent across the platform.',
+    context: 'Accessible by default',
   },
 ];
 
-const universities = ['LSBU', 'KCL', 'UCL', 'Imperial', 'QMUL', 'Westminster'];
+const universities = ['LSBU', 'KCL', 'UCL', 'Imperial', 'QMUL', 'UOW'];
 
 const faqs = [
   {
@@ -96,7 +96,7 @@ const faqs = [
   },
   {
     q: 'What makes the AI Academic Assistant different from a general AI chatbot?',
-    a: 'Our AI Assistant is designed to guide you using the Socratic method. It will not write your essays or hand you a worked solution. It explains concepts, asks targeted follow-up questions, and shows the method on a parallel example so you can apply it yourself — building genuine understanding rather than shortcuts you cannot defend in an exam.',
+    a: 'Our AI Assistant is designed to guide you using the Socratic method. It will not write your essays or hand you a worked solution. It explains concepts, asks targeted follow-up questions, and shows the method on a parallel example so you can apply it yourself. The goal is genuine understanding rather than shortcuts you cannot defend in an exam.',
   },
   {
     q: 'Are the community forums moderated?',
@@ -108,7 +108,7 @@ const faqs = [
   },
   {
     q: 'How much does StudySpace cost?',
-    a: 'Community forums, the AI Academic Assistant, and browsing tutors are completely free. You only pay when you book a tutoring session, and the price is set transparently by each tutor. There are no hidden fees and no subscription costs. Tutors keep the majority of their earnings — platform commissions are kept low and disclosed.',
+    a: 'Community forums, the AI Academic Assistant, and browsing tutors are completely free. You only pay when you book a tutoring session, and the price is set transparently by each tutor. There are no hidden fees and no subscription costs. Tutors keep the majority of their earnings, and platform commissions are kept low and disclosed.',
   },
   {
     q: 'Can I post anonymously in the forums?',
@@ -116,7 +116,7 @@ const faqs = [
   },
   {
     q: 'Is StudySpace accessible?',
-    a: 'Yes. Six built-in accessibility settings — text size, high-contrast mode, reduced motion, underlined links, dyslexia-friendly font, and stronger focus rings — apply across the entire site, including this homepage. They are saved to your account and persist across devices.',
+    a: 'Yes. Six built-in accessibility settings apply across the entire site, including this homepage: text size, high-contrast mode, reduced motion, underlined links, dyslexia-friendly font, and stronger focus rings. They are saved to your account and persist across devices.',
   },
   {
     q: 'What if I need to cancel a tutoring session?',
@@ -191,7 +191,7 @@ export default function Landing() {
                 }}
               >
                 Tutoring, community,<br />
-                and AI study support —<br />
+                and AI study support,<br />
                 <Box component="span" sx={{ color: 'secondary.main' }}>all in one place.</Box>
               </Typography>
               <Typography
@@ -199,7 +199,7 @@ export default function Landing() {
                 sx={{ color: 'rgba(255,255,255,0.92)', mb: 4, fontSize: '1.1rem', maxWidth: 560, lineHeight: 1.65 }}
               >
                 Verified tutors. University forums you actually belong to. A guided AI assistant that helps
-                you understand — not just finish. StudySpace gives you the trusted study tools UK students
+                you understand, not just finish. StudySpace gives you the trusted study tools UK students
                 deserve, in one connected platform.
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -216,7 +216,7 @@ export default function Landing() {
                     '&:hover': { bgcolor: 'secondary.dark' },
                   }}
                 >
-                  {user ? 'Find a Tutor' : 'Get Started — Free'}
+                  {user ? 'Find a Tutor' : 'Get Started Free'}
                 </Button>
                 <Button
                   variant="outlined"
@@ -258,7 +258,7 @@ export default function Landing() {
             </Grid>
 
             <Grid item xs={12} md={5}>
-              {/* Decorative card cluster — replaces the plain icon-in-a-box. Stays
+              {/* Decorative card cluster replaces the plain icon-in-a-box. Stays
                   purely decorative (no real screenshots) so we don't need image assets. */}
               <Box sx={{ position: 'relative', height: { xs: 280, md: 380 } }}>
                 <Paper
@@ -300,7 +300,7 @@ export default function Landing() {
                     </Avatar>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
-                        Dr Jane (LSBU) — verified
+                        Dr Jane (LSBU), verified
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         Mathematics · £30/hr · 4.9 ★
@@ -405,7 +405,7 @@ export default function Landing() {
               Why StudySpace
             </Typography>
             <Typography variant="h2" sx={{ mt: 1.5 }}>
-              Built differently — and you can tell.
+              Built differently, and you can tell.
             </Typography>
           </Box>
           <Grid container spacing={3}>
@@ -481,39 +481,42 @@ export default function Landing() {
           ))}
         </Stack>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3 }}>
-          Plus other UK institutions — verify your university email after sign-up to unlock your campus space.
+          Plus other UK institutions. Verify your university email after sign-up to unlock your campus space.
         </Typography>
       </Container>
 
-      {/* Testimonials */}
+      {/* Example scenarios */}
       <Box sx={{ bgcolor: 'grey.50', py: { xs: 8, md: 10 } }}>
         <Container maxWidth="lg">
           <Box sx={{ textAlign: 'center', mb: 6 }}>
             <Typography variant="overline" sx={{ color: 'primary.main', letterSpacing: 1.5, fontWeight: 600 }}>
-              From students using StudySpace
+              How StudySpace can help
             </Typography>
             <Typography variant="h2" sx={{ mt: 1.5 }}>
-              Real feedback, not testimonials we wrote.
+              Example scenarios for real study situations.
+            </Typography>
+            <Typography color="text.secondary" sx={{ maxWidth: 640, mx: 'auto', mt: 1.5 }}>
+              A quick look at the kinds of study moments the platform is built to support.
             </Typography>
           </Box>
           <Grid container spacing={3}>
-            {testimonials.map((t, i) => (
-              <Grid item xs={12} md={4} key={i}>
+            {scenarios.map((scenario) => (
+              <Grid item xs={12} md={4} key={scenario.title}>
                 <Card sx={{ height: '100%', p: 1, position: 'relative' }}>
                   <CardContent>
-                    <FormatQuote sx={{ color: 'primary.light', fontSize: 32, mb: 1 }} />
-                    <Typography variant="body1" sx={{ mb: 2.5, lineHeight: 1.7, fontStyle: 'italic' }}>
-                      {t.quote}
+                    <Chip
+                      label={scenario.context}
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                      sx={{ mb: 2 }}
+                    />
+                    <Typography variant="h5" sx={{ mb: 1.5, fontWeight: 700 }}>
+                      {scenario.title}
                     </Typography>
-                    <Stack direction="row" spacing={1.5} alignItems="center">
-                      <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>
-                        {t.author.charAt(0)}
-                      </Avatar>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{t.author}</Typography>
-                        <Typography variant="caption" color="text.secondary">{t.context}</Typography>
-                      </Box>
-                    </Stack>
+                    <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.7 }}>
+                      {scenario.desc}
+                    </Typography>
                   </CardContent>
                 </Card>
               </Grid>
@@ -522,7 +525,7 @@ export default function Landing() {
         </Container>
       </Box>
 
-      {/* FAQ — kept at the end as requested */}
+      {/* FAQ kept at the end as requested */}
       <Container maxWidth="md" sx={{ py: { xs: 8, md: 10 } }}>
         <Box sx={{ textAlign: 'center', mb: 5 }}>
           <Typography variant="overline" sx={{ color: 'primary.main', letterSpacing: 1.5, fontWeight: 600 }}>
@@ -532,7 +535,7 @@ export default function Landing() {
             Frequently asked questions
           </Typography>
           <Typography color="text.secondary">
-            Everything you need to know — and a few things you might not have thought to ask.
+            Everything you need to know, plus a few things you might not have thought to ask.
           </Typography>
         </Box>
         {faqs.map((faq, i) => (
@@ -580,7 +583,7 @@ export default function Landing() {
         <Container maxWidth="sm" sx={{ textAlign: 'center' }}>
           <Typography variant="h3" sx={{ mb: 1.5 }}>Ready to study smarter?</Typography>
           <Typography color="text.secondary" sx={{ mb: 3.5, fontSize: '1.05rem' }}>
-            Sign up free in two minutes. No credit card. Cancel any time — there's nothing to cancel.
+            Sign up free in two minutes. No credit card. Nothing to cancel.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
             <Button variant="contained" size="large" onClick={goPrimary} endIcon={<ArrowForward />}>
