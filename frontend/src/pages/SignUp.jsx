@@ -12,6 +12,9 @@ import {
   CheckCircle, Cancel as CancelIcon,
 } from '@mui/icons-material';
 import { evaluatePassword, noPasteProps } from '../utils/passwordRules';
+import PrivacyPolicyDialog from '../components/legal/PrivacyPolicyDialog';
+import TermsDialog from '../components/legal/TermsDialog';
+import { Link } from '@mui/material';
 
 
 const SESSION_KEY = 'studyspace_signup_state';
@@ -113,6 +116,8 @@ export default function SignUp() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
 
   // Step 1b - verify
   const [code, setCode] = useState('');
@@ -470,10 +475,38 @@ export default function SignUp() {
                   {...noPasteProps()}
                 />
 
-                <FormControlLabel control={<Checkbox checked={agreed}
-                  onChange={(e) => setAgreed(e.target.checked)} size="small" />}
-                  label={<Typography variant="body2">I agree to the Terms & Conditions and Privacy Policy</Typography>}
-                  sx={{ mb: 2 }} />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={agreed}
+                      onChange={(e) => setAgreed(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label={
+                    <Typography variant="body2">
+                      I agree to the{' '}
+                      <Link
+                        component="button"
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setTermsOpen(true); }}
+                        sx={{ verticalAlign: 'baseline' }}
+                      >
+                        Terms &amp; Conditions
+                      </Link>
+                      {' '}and{' '}
+                      <Link
+                        component="button"
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setPrivacyOpen(true); }}
+                        sx={{ verticalAlign: 'baseline' }}
+                      >
+                        Privacy Policy
+                      </Link>
+                    </Typography>
+                  }
+                  sx={{ mb: 2 }}
+                />
                 <Button fullWidth variant="contained" size="large" onClick={handleStep1} disabled={loading}>
                   {loading ? 'Creating...' : 'Continue'}
                 </Button>
@@ -689,6 +722,8 @@ export default function SignUp() {
             )}
           </CardContent>
         </Card>
+        <PrivacyPolicyDialog open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
+        <TermsDialog open={termsOpen} onClose={() => setTermsOpen(false)} />
       </Container>
     </Box>
   );

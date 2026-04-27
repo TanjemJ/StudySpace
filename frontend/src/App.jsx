@@ -21,6 +21,7 @@ import AIChat from './pages/AIChat';
 import Bookings from './pages/Bookings';
 import Settings from './pages/Settings';
 import ContactUs from './pages/ContactUs';
+import About from './pages/About';
 import Messages from './pages/Messages';
 
 
@@ -60,7 +61,13 @@ export default function App() {
       <Navbar />
       <PageTransition>
         <Routes>
-          <Route path="/" element={user ? <Navigate to={getDashboardRoute()} /> : <Landing />} />
+          {/*
+            Landing is reachable for both logged-out and logged-in users so
+            that clicking the StudySpace logo (which navigates to "/") always
+            returns the user to the homepage. Logged-in users still get
+            redirected to their dashboard from /login.
+          */}
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={user ? <Navigate to={getDashboardRoute()} /> : <Login />} />
           <Route path="/signup" element={<SignUp />} />
 
@@ -89,6 +96,7 @@ export default function App() {
           <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
           <Route path="/messages/:conversationId" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
           <Route path="/contact" element={<ContactUs />} />
+          <Route path="/about" element={<About />} />
         </Routes>
       </PageTransition>
     </>

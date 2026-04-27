@@ -14,6 +14,12 @@ from .serializers import UserSerializer, StudentProfileSerializer, TutorProfileS
 from .university_email_service import validate_university_email, university_email_is_verified_elsewhere
 from .views import send_verification_email
 
+import logging
+from django.core.mail import EmailMultiAlternatives
+from django.conf import settings
+
+
+logger = logging.getLogger(__name__)
 
 def _get_university_profile(user):
     if user.role == User.Role.STUDENT:
@@ -411,10 +417,52 @@ class DeleteAccountView(views.APIView):
         user.save()
 
         return Response({'message': 'Account deleted.'})
+    
+
+def _send_contact_email_to_admin(contact):
+    """
+    Forward a submitted contact-form message to the StudySpace support inbox.
+
+    Best-effort: if SendGrid is unavailable or the SMTP call fails, we log
+    and return. The DB row is already saved, so the message is not lost — an
+    admin can still see it via Django admin.
+    """
+    forward_to = getattr(
+        settings,
+        'STUDYSPACE_CONTACT_FORWARD_EMAIL',
+        'studyspaceadmin@gmail.com',
+    )
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'no-reply@study-space.org.uk')
+
+    subject = f"[StudySpace Contact] {contact.subject}"
+    text_body = (
+        f"A new contact-form message has been submitted.\n\n"
+        f"From:    {contact.name} <{contact.email}>\n"
+        f"User:    {'authenticated' if contact.user_id else 'anonymous'}\n"
+        f"Subject: {contact.subject}\n"
+        f"At:      {contact.created_at.isoformat()}\n\n"
+        f"-- Message --\n{contact.message}\n"
+        f"-- End message --\n\n"
+        f"Reply directly to this email to respond — Reply-To is set to the sender."
+    )
+
+    try:
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=text_body,
+            from_email=from_email,
+            to=[forward_to],
+            reply_to=[contact.email],
+        )
+        msg.send(fail_silently=False)
+    except Exception:
+        # Don't break the API if email send fails — the row is already saved.
+        logger.exception('Failed to forward contact-form email to admin')
+
 
 
 class ContactFormView(views.APIView):
-    """Submit a contact form message."""
+    """Submit a contact form message and forward it to the support inbox."""
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -422,15 +470,21 @@ class ContactFormView(views.APIView):
         serializer.is_valid(raise_exception=True)
 
         user = request.user if request.user.is_authenticated else None
-        ContactMessage.objects.create(
+        contact = ContactMessage.objects.create(
             user=user,
             email=serializer.validated_data['email'],
             name=serializer.validated_data['name'],
             subject=serializer.validated_data['subject'],
             message=serializer.validated_data['message'],
         )
-        return Response({'message': 'Your message has been sent. We will get back to you shortly.'}, status=status.HTTP_201_CREATED)
 
+        # Forward to admin inbox. Best-effort — the DB row is already created.
+        _send_contact_email_to_admin(contact)
+
+        return Response(
+            {'message': 'Your message has been sent. We will get back to you shortly.'},
+            status=status.HTTP_201_CREATED,
+        )
 
 def _get_full_user_data(user):
     data = UserSerializer(user).data

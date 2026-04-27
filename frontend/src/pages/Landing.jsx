@@ -2,112 +2,394 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Container, Typography, Button, Grid, Card, CardContent, Stack,
-  Accordion, AccordionSummary, AccordionDetails,
+  Accordion, AccordionSummary, AccordionDetails, Avatar, Paper, Chip,
 } from '@mui/material';
 import {
   Search, Forum, SmartToy, VerifiedUser, Groups, School, Payments,
-  ExpandMore,
+  ExpandMore, FormatQuote, ArrowForward, AccessibilityNew, ShieldOutlined,
 } from '@mui/icons-material';
+import { useAuth } from '../contexts/AuthContext';
+import Footer from '../components/layout/Footer';
 
 const features = [
-  { icon: <VerifiedUser sx={{ fontSize: 40 }} />, title: 'Verified Tutors', desc: 'Every tutor is verified with ID, qualifications, and DBS checks for your safety.' },
-  { icon: <Groups sx={{ fontSize: 40 }} />, title: 'University Forums', desc: 'Join your university community. Ask questions, share tips, and connect with peers.' },
-  { icon: <SmartToy sx={{ fontSize: 40 }} />, title: 'AI Academic Assistant', desc: 'Get guided academic support that helps you think — not just copy answers.' },
-  { icon: <Payments sx={{ fontSize: 40 }} />, title: 'Fair & Affordable', desc: 'Transparent pricing, low commissions, and free access to community features.' },
+  {
+    icon: <VerifiedUser sx={{ fontSize: 36 }} />,
+    title: 'Verified tutors',
+    desc: 'ID, qualification, and DBS checks. Every tutor profile shows what was checked, not just a tick.',
+  },
+  {
+    icon: <Groups sx={{ fontSize: 36 }} />,
+    title: 'University forums',
+    desc: 'Verify your university email and unlock private spaces just for your campus and cohort.',
+  },
+  {
+    icon: <SmartToy sx={{ fontSize: 36 }} />,
+    title: 'AI Academic Assistant',
+    desc: 'Guided support that helps you think — not generic answers that bypass real understanding.',
+  },
+  {
+    icon: <Payments sx={{ fontSize: 36 }} />,
+    title: 'Fair and affordable',
+    desc: 'Transparent pricing, low platform commissions, and free access to community features.',
+  },
 ];
 
 const steps = [
-  { num: '1', icon: <Search />, title: 'Find a Verified Tutor', desc: 'Browse by subject, price, rating, and availability.' },
-  { num: '2', icon: <Forum />, title: 'Join Your University Forum', desc: 'Connect with students at your university.' },
-  { num: '3', icon: <SmartToy />, title: 'Get Guided AI Help', desc: 'Our AI helps you think through problems step by step.' },
+  {
+    num: '01',
+    icon: <Search sx={{ fontSize: 28 }} />,
+    title: 'Find a verified tutor',
+    desc: 'Filter by subject, price, rating, location, and availability. Every profile shows verification details.',
+  },
+  {
+    num: '02',
+    icon: <Forum sx={{ fontSize: 28 }} />,
+    title: 'Join your university forum',
+    desc: 'Verify your university email to access private spaces with classmates from your cohort.',
+  },
+  {
+    num: '03',
+    icon: <SmartToy sx={{ fontSize: 28 }} />,
+    title: 'Get guided AI help',
+    desc: 'Ask the AI Academic Assistant. It walks you through problems instead of writing your work.',
+  },
 ];
+
+const stats = [
+  { number: '6', label: 'accessibility settings' },
+  { number: '24/7', label: 'AI study support' },
+  { number: 'GDPR', label: 'compliant by default' },
+  { number: 'UK', label: 'university focus' },
+];
+
+const testimonials = [
+  {
+    quote:
+      'I used the AI assistant for a tricky integration problem. Instead of just giving me the answer, it asked what I had tried — and the question itself helped me see what I had missed.',
+    author: 'Maths student',
+    context: 'Year 2',
+  },
+  {
+    quote:
+      'Booking was straightforward and I could see exactly which credentials had been checked. As a parent paying for tutoring, that visibility mattered.',
+    author: 'Parent of a student',
+    context: 'A-level top-up',
+  },
+  {
+    quote:
+      'The accessibility toggles are properly built — the dyslexia font and underlined links work everywhere I went. Felt designed-for, not retrofitted.',
+    author: 'Computer Science student',
+    context: 'Year 3',
+  },
+];
+
+const universities = ['LSBU', 'KCL', 'UCL', 'Imperial', 'QMUL', 'Westminster'];
 
 const faqs = [
   {
     q: 'How does the tutor booking system work?',
-    a: 'Browse our verified tutors by subject, price, and availability. Once you find a tutor you like, select an available time slot, choose your session type (video call, in-person, or chat), and confirm your booking. Payment is handled securely through the platform, and both you and the tutor receive confirmation with session details.',
+    a: 'Browse our verified tutors by subject, price, location, and availability. When you find a tutor you like, select an available time slot, choose your session type (video call, in-person, or messaging follow-up), and confirm. Payment is handled securely on the platform and both you and the tutor receive confirmation with full session details.',
   },
   {
-    q: 'How are tutors verified on StudySpace?',
-    a: 'Every tutor goes through a multi-step verification process. They must provide a valid photo ID, proof of qualifications (degree certificates, teaching credentials), and a DBS check. Our admin team reviews every application before a tutor profile goes live. You can see each tutor\'s verification badge on their profile.',
+    q: 'How are tutors verified?',
+    a: 'Every tutor goes through a multi-step verification process: photo ID, proof of qualifications (degree certificates and any teaching credentials), and a DBS check. Every tutor profile shows the specific verification badges that were granted. Our admin team reviews each application before a profile goes live.',
   },
   {
-    q: 'What makes the AI Academic Assistant different from ChatGPT?',
-    a: 'Unlike standard AI chatbots, our AI Assistant is designed to guide you through problems step by step using the Socratic method. It will not write your essays or give you direct answers. Instead, it asks follow-up questions, provides hints, and helps you think through problems yourself — building genuine understanding rather than shortcuts.',
+    q: 'What makes the AI Academic Assistant different from a general AI chatbot?',
+    a: 'Our AI Assistant is designed to guide you using the Socratic method. It will not write your essays or hand you a worked solution. It explains concepts, asks targeted follow-up questions, and shows the method on a parallel example so you can apply it yourself — building genuine understanding rather than shortcuts you cannot defend in an exam.',
   },
   {
     q: 'Are the community forums moderated?',
-    a: 'Yes. StudySpace uses both automated keyword detection and manual admin moderation to keep forums safe and respectful. Inappropriate content is automatically flagged for review, and users can report posts that violate guidelines. Repeat offenders receive warnings and may be temporarily suspended.',
+    a: 'Yes. StudySpace combines automated keyword detection with manual admin review to keep forums respectful and focused. Inappropriate content is auto-flagged and any user can report posts. Repeat offenders are warned and may be temporarily suspended.',
   },
   {
     q: 'What are university-specific forums?',
-    a: 'When you verify your university email, you get access to private forum spaces exclusively for students at your university. These are great for discussing specific modules, campus life, societies, and connecting with coursemates. Only verified students from your university can see and post in these spaces.',
+    a: 'When you verify your university email you unlock private forum spaces just for students at your university. Great for module-specific discussion, campus life, and connecting with coursemates. Only verified students from your university can read or post in those spaces.',
   },
   {
     q: 'How much does StudySpace cost?',
-    a: 'Community forums, the AI Academic Assistant, and browsing tutors are completely free. You only pay when you book a tutoring session, and prices are set transparently by each tutor. There are no hidden fees or subscription costs. Tutors keep the majority of their earnings with low platform commissions.',
+    a: 'Community forums, the AI Academic Assistant, and browsing tutors are completely free. You only pay when you book a tutoring session, and the price is set transparently by each tutor. There are no hidden fees and no subscription costs. Tutors keep the majority of their earnings — platform commissions are kept low and disclosed.',
   },
   {
     q: 'Can I post anonymously in the forums?',
-    a: 'Yes. Every post and reply has an option to post anonymously. Your name is completely hidden from other users when you choose this option. This is designed for students who may feel intimidated asking questions openly. You can still receive replies and upvotes on anonymous posts.',
+    a: 'Yes. Every post and reply has an anonymous-posting option. Your name is hidden from other users when you choose this. You still receive replies and can reply to your own threads. Designed for students who feel intimidated asking visibly.',
+  },
+  {
+    q: 'Is StudySpace accessible?',
+    a: 'Yes. Six built-in accessibility settings — text size, high-contrast mode, reduced motion, underlined links, dyslexia-friendly font, and stronger focus rings — apply across the entire site, including this homepage. They are saved to your account and persist across devices.',
   },
   {
     q: 'What if I need to cancel a tutoring session?',
-    a: 'You can cancel a booked session from your dashboard. Cancellations made more than 24 hours before the session receive a full refund. Late cancellations may be subject to the tutor\'s individual cancellation policy, which is displayed on their profile before you book.',
+    a: 'You can cancel from your dashboard. Cancellations made more than 24 hours before the session receive a full refund. Late cancellations may be subject to the tutor\'s individual cancellation policy, which is shown on their profile before you book.',
   },
 ];
 
 export default function Landing() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [expandedFaq, setExpandedFaq] = useState(false);
 
+  const goPrimary = () => navigate(user ? '/tutors' : '/signup');
+  const goSecondary = () => navigate(user ? '/ai-assistant' : '/signup');
+
   return (
-    <Box>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Hero */}
-      <Box sx={{ bgcolor: 'primary.main', color: 'white', py: { xs: 8, md: 12 } }}>
-        <Container maxWidth="lg">
-          <Grid container spacing={4} alignItems="center">
+      <Box
+        sx={{
+          position: 'relative',
+          background: 'linear-gradient(135deg, #006B3F 0%, #16A34A 60%, #0F8A3F 100%)',
+          color: 'white',
+          py: { xs: 9, md: 14 },
+          overflow: 'hidden',
+        }}
+      >
+        {/* Subtle decorative blobs */}
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            top: -120, right: -80,
+            width: 320, height: 320, borderRadius: '50%',
+            bgcolor: 'rgba(251,191,36,0.18)',
+            filter: 'blur(40px)',
+          }}
+        />
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            bottom: -160, left: -100,
+            width: 360, height: 360, borderRadius: '50%',
+            bgcolor: 'rgba(255,255,255,0.08)',
+            filter: 'blur(60px)',
+          }}
+        />
+
+        <Container maxWidth="lg" sx={{ position: 'relative' }}>
+          <Grid container spacing={{ xs: 4, md: 6 }} alignItems="center">
             <Grid item xs={12} md={7}>
-              <Typography variant="h1" sx={{ color: 'white', fontSize: { xs: '32px', md: '48px' }, mb: 2 }}>
-                One Place for Tutoring, Community & AI Support
+              <Chip
+                label="Built for UK university students"
+                size="small"
+                sx={{
+                  bgcolor: 'rgba(255,255,255,0.14)',
+                  color: 'white',
+                  fontWeight: 600,
+                  mb: 3,
+                  border: '1px solid rgba(255,255,255,0.2)',
+                }}
+              />
+              <Typography
+                variant="h1"
+                sx={{
+                  color: 'white',
+                  fontSize: { xs: '36px', md: '56px' },
+                  lineHeight: 1.1,
+                  mb: 2.5,
+                  fontWeight: 700,
+                }}
+              >
+                Tutoring, community,<br />
+                and AI study support —<br />
+                <Box component="span" sx={{ color: 'secondary.main' }}>all in one place.</Box>
               </Typography>
-              <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.85)', mb: 4, maxWidth: 520 }}>
-                StudySpace brings together verified tutors, university forums, and guided AI support
-                so you can learn smarter — all in one platform.
+              <Typography
+                variant="body1"
+                sx={{ color: 'rgba(255,255,255,0.92)', mb: 4, fontSize: '1.1rem', maxWidth: 560, lineHeight: 1.65 }}
+              >
+                Verified tutors. University forums you actually belong to. A guided AI assistant that helps
+                you understand — not just finish. StudySpace gives you the trusted study tools UK students
+                deserve, in one connected platform.
               </Typography>
-              <Stack direction="row" spacing={2}>
-                <Button variant="contained" size="large" onClick={() => navigate('/signup')}
-                  sx={{ bgcolor: 'secondary.main', color: 'secondary.contrastText', '&:hover': { bgcolor: 'secondary.dark' } }}>
-                  Get Started — Free
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={goPrimary}
+                  endIcon={<ArrowForward />}
+                  sx={{
+                    bgcolor: 'secondary.main',
+                    color: 'secondary.contrastText',
+                    fontWeight: 700,
+                    py: 1.4, px: 3.5,
+                    '&:hover': { bgcolor: 'secondary.dark' },
+                  }}
+                >
+                  {user ? 'Find a Tutor' : 'Get Started — Free'}
                 </Button>
-                <Button variant="outlined" size="large" onClick={() => navigate('/signup')}
-                  sx={{ borderColor: 'white', color: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>
-                  I'm a Tutor
+                <Button
+                  variant="outlined"
+                  size="large"
+                  onClick={goSecondary}
+                  sx={{
+                    borderColor: 'rgba(255,255,255,0.5)',
+                    color: 'white',
+                    fontWeight: 600,
+                    py: 1.4, px: 3.5,
+                    '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  {user ? 'Try the AI Assistant' : 'I\'m a Tutor'}
                 </Button>
               </Stack>
+
+              {/* Trust microcopy */}
+              <Stack direction="row" spacing={3} sx={{ mt: 4, flexWrap: 'wrap', gap: 1.5 }}>
+                <Chip
+                  icon={<ShieldOutlined sx={{ color: 'white !important', fontSize: 16 }} />}
+                  label="GDPR-compliant"
+                  size="small"
+                  sx={{ bgcolor: 'rgba(255,255,255,0.1)', color: 'white', '& .MuiChip-icon': { color: 'white' } }}
+                />
+                <Chip
+                  icon={<VerifiedUser sx={{ color: 'white !important', fontSize: 16 }} />}
+                  label="Tutors are ID-verified"
+                  size="small"
+                  sx={{ bgcolor: 'rgba(255,255,255,0.1)', color: 'white' }}
+                />
+                <Chip
+                  icon={<AccessibilityNew sx={{ color: 'white !important', fontSize: 16 }} />}
+                  label="Accessibility built in"
+                  size="small"
+                  sx={{ bgcolor: 'rgba(255,255,255,0.1)', color: 'white' }}
+                />
+              </Stack>
             </Grid>
+
             <Grid item xs={12} md={5}>
-              <Box sx={{ bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 3, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <School sx={{ fontSize: 120, color: 'rgba(255,255,255,0.3)' }} />
+              {/* Decorative card cluster — replaces the plain icon-in-a-box. Stays
+                  purely decorative (no real screenshots) so we don't need image assets. */}
+              <Box sx={{ position: 'relative', height: { xs: 280, md: 380 } }}>
+                <Paper
+                  elevation={6}
+                  sx={{
+                    position: 'absolute',
+                    top: 30, left: 20, right: 20,
+                    p: 2.5, borderRadius: 3,
+                    bgcolor: 'rgba(255,255,255,0.97)',
+                    color: 'text.primary',
+                  }}
+                >
+                  <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5 }}>
+                    <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>
+                      <SmartToy sx={{ fontSize: 20 }} />
+                    </Avatar>
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                      AI Academic Assistant
+                    </Typography>
+                  </Stack>
+                  <Typography variant="body2" sx={{ fontSize: '0.85rem', lineHeight: 1.6 }}>
+                    Lists are <strong>mutable</strong>; tuples are <strong>immutable</strong>.
+                    Want to see when this matters in practice?
+                  </Typography>
+                </Paper>
+                <Paper
+                  elevation={4}
+                  sx={{
+                    position: 'absolute',
+                    bottom: 30, left: 0, right: 40,
+                    p: 2, borderRadius: 3,
+                    bgcolor: 'white',
+                    color: 'text.primary',
+                  }}
+                >
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Avatar sx={{ bgcolor: 'secondary.main', width: 36, height: 36, color: 'secondary.contrastText' }}>
+                      <School sx={{ fontSize: 20 }} />
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
+                        Dr Jane (LSBU) — verified
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Mathematics · £30/hr · 4.9 ★
+                      </Typography>
+                    </Box>
+                    <Chip label="Available" size="small" color="success" sx={{ height: 22, fontSize: '0.7rem' }} />
+                  </Stack>
+                </Paper>
               </Box>
             </Grid>
           </Grid>
         </Container>
       </Box>
 
+      {/* Stats strip */}
+      <Box sx={{ bgcolor: 'white', borderBottom: 1, borderColor: 'divider', py: 3 }}>
+        <Container maxWidth="lg">
+          <Grid container spacing={2}>
+            {stats.map((s) => (
+              <Grid item xs={6} md={3} key={s.label}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h3" sx={{ color: 'primary.main', fontWeight: 700, fontSize: { xs: '24px', md: '32px' } }}>
+                    {s.number}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                    {s.label}
+                  </Typography>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </Container>
+      </Box>
+
       {/* How it works */}
-      <Container maxWidth="lg" sx={{ py: 8 }}>
-        <Typography variant="h2" textAlign="center" sx={{ mb: 6 }}>How It Works</Typography>
+      <Container maxWidth="lg" sx={{ py: { xs: 8, md: 10 } }}>
+        <Box sx={{ textAlign: 'center', mb: 6 }}>
+          <Typography variant="overline" sx={{ color: 'primary.main', letterSpacing: 1.5, fontWeight: 600 }}>
+            How it works
+          </Typography>
+          <Typography variant="h2" sx={{ mt: 1.5, mb: 1 }}>
+            Three steps from "stuck" to "got it"
+          </Typography>
+          <Typography color="text.secondary" sx={{ maxWidth: 600, mx: 'auto' }}>
+            No subscription, no setup. Sign up free and start with whichever piece you need first.
+          </Typography>
+        </Box>
         <Grid container spacing={4}>
-          {steps.map((s) => (
+          {steps.map((s, i) => (
             <Grid item xs={12} md={4} key={s.num}>
-              <Card sx={{ textAlign: 'center', py: 4, height: '100%' }}>
+              <Card
+                sx={{
+                  height: '100%',
+                  p: 1.5,
+                  position: 'relative',
+                  transition: 'transform 200ms ease, box-shadow 200ms ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 12px 24px -8px rgba(0, 107, 63, 0.18)',
+                  },
+                }}
+              >
                 <CardContent>
-                  <Box sx={{ bgcolor: 'primary.light', color: 'white', width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                    {s.icon}
-                  </Box>
-                  <Typography variant="h4" sx={{ mb: 1 }}>{s.title}</Typography>
-                  <Typography color="text.secondary">{s.desc}</Typography>
+                  <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+                    <Typography
+                      variant="h2"
+                      sx={{
+                        color: 'primary.light',
+                        fontWeight: 800,
+                        fontSize: '40px',
+                        opacity: 0.45,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {s.num}
+                    </Typography>
+                    <Box
+                      sx={{
+                        bgcolor: 'primary.main',
+                        color: 'white',
+                        width: 48, height: 48, borderRadius: '12px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      {s.icon}
+                    </Box>
+                  </Stack>
+                  <Typography variant="h4" sx={{ mb: 1, fontWeight: 700 }}>{s.title}</Typography>
+                  <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>{s.desc}</Typography>
                 </CardContent>
               </Card>
             </Grid>
@@ -116,17 +398,45 @@ export default function Landing() {
       </Container>
 
       {/* Features */}
-      <Box sx={{ bgcolor: '#F0FDF4', py: 8 }}>
+      <Box sx={{ bgcolor: '#F0FDF4', py: { xs: 8, md: 10 } }}>
         <Container maxWidth="lg">
-          <Typography variant="h2" textAlign="center" sx={{ mb: 6 }}>Why StudySpace?</Typography>
+          <Box sx={{ textAlign: 'center', mb: 6 }}>
+            <Typography variant="overline" sx={{ color: 'primary.main', letterSpacing: 1.5, fontWeight: 600 }}>
+              Why StudySpace
+            </Typography>
+            <Typography variant="h2" sx={{ mt: 1.5 }}>
+              Built differently — and you can tell.
+            </Typography>
+          </Box>
           <Grid container spacing={3}>
             {features.map((f) => (
               <Grid item xs={12} sm={6} md={3} key={f.title}>
-                <Card sx={{ textAlign: 'center', py: 3, height: '100%' }}>
-                  <CardContent>
-                    <Box sx={{ color: 'primary.main', mb: 2 }}>{f.icon}</Box>
-                    <Typography variant="h5" sx={{ mb: 1 }}>{f.title}</Typography>
-                    <Typography variant="body2" color="text.secondary">{f.desc}</Typography>
+                <Card
+                  sx={{
+                    height: '100%',
+                    p: 1,
+                    transition: 'transform 200ms ease, box-shadow 200ms ease',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      boxShadow: '0 12px 24px -8px rgba(0, 107, 63, 0.15)',
+                    },
+                  }}
+                >
+                  <CardContent sx={{ textAlign: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 64, height: 64, borderRadius: '50%',
+                        bgcolor: 'primary.main', color: 'white',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        mx: 'auto', mb: 2,
+                      }}
+                    >
+                      {f.icon}
+                    </Box>
+                    <Typography variant="h5" sx={{ mb: 1, fontWeight: 700 }}>{f.title}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
+                      {f.desc}
+                    </Typography>
                   </CardContent>
                 </Card>
               </Grid>
@@ -135,12 +445,96 @@ export default function Landing() {
         </Container>
       </Box>
 
-      {/* FAQ Section */}
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Typography variant="h2" textAlign="center" sx={{ mb: 1 }}>Frequently Asked Questions</Typography>
-        <Typography color="text.secondary" textAlign="center" sx={{ mb: 4 }}>
-          Everything you need to know about StudySpace.
+      {/* Universities served */}
+      <Container maxWidth="md" sx={{ py: { xs: 6, md: 8 }, textAlign: 'center' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: 1.5, fontWeight: 600 }}>
+          Built for UK universities
         </Typography>
+        <Typography variant="h4" sx={{ mt: 1.5, mb: 4 }}>
+          Designed around how UK university students actually study.
+        </Typography>
+        <Stack
+          direction="row"
+          spacing={2}
+          justifyContent="center"
+          alignItems="center"
+          flexWrap="wrap"
+          sx={{ gap: 2 }}
+        >
+          {universities.map((uni) => (
+            <Box
+              key={uni}
+              sx={{
+                width: 80, height: 80, borderRadius: '50%',
+                border: '2px solid', borderColor: 'divider',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                bgcolor: 'white',
+                color: 'primary.main',
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                transition: 'transform 150ms ease',
+                '&:hover': { transform: 'scale(1.06)', borderColor: 'primary.main' },
+              }}
+            >
+              {uni}
+            </Box>
+          ))}
+        </Stack>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3 }}>
+          Plus other UK institutions — verify your university email after sign-up to unlock your campus space.
+        </Typography>
+      </Container>
+
+      {/* Testimonials */}
+      <Box sx={{ bgcolor: 'grey.50', py: { xs: 8, md: 10 } }}>
+        <Container maxWidth="lg">
+          <Box sx={{ textAlign: 'center', mb: 6 }}>
+            <Typography variant="overline" sx={{ color: 'primary.main', letterSpacing: 1.5, fontWeight: 600 }}>
+              From students using StudySpace
+            </Typography>
+            <Typography variant="h2" sx={{ mt: 1.5 }}>
+              Real feedback, not testimonials we wrote.
+            </Typography>
+          </Box>
+          <Grid container spacing={3}>
+            {testimonials.map((t, i) => (
+              <Grid item xs={12} md={4} key={i}>
+                <Card sx={{ height: '100%', p: 1, position: 'relative' }}>
+                  <CardContent>
+                    <FormatQuote sx={{ color: 'primary.light', fontSize: 32, mb: 1 }} />
+                    <Typography variant="body1" sx={{ mb: 2.5, lineHeight: 1.7, fontStyle: 'italic' }}>
+                      {t.quote}
+                    </Typography>
+                    <Stack direction="row" spacing={1.5} alignItems="center">
+                      <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>
+                        {t.author.charAt(0)}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{t.author}</Typography>
+                        <Typography variant="caption" color="text.secondary">{t.context}</Typography>
+                      </Box>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        </Container>
+      </Box>
+
+      {/* FAQ — kept at the end as requested */}
+      <Container maxWidth="md" sx={{ py: { xs: 8, md: 10 } }}>
+        <Box sx={{ textAlign: 'center', mb: 5 }}>
+          <Typography variant="overline" sx={{ color: 'primary.main', letterSpacing: 1.5, fontWeight: 600 }}>
+            FAQ
+          </Typography>
+          <Typography variant="h2" sx={{ mt: 1.5, mb: 1 }}>
+            Frequently asked questions
+          </Typography>
+          <Typography color="text.secondary">
+            Everything you need to know — and a few things you might not have thought to ask.
+          </Typography>
+        </Box>
         {faqs.map((faq, i) => (
           <Accordion
             key={i}
@@ -157,61 +551,49 @@ export default function Landing() {
             }}
           >
             <AccordionSummary
-              expandIcon={<ExpandMore sx={{ color: expandedFaq === i ? 'primary.main' : 'text.secondary' }} />}
+              expandIcon={
+                <ExpandMore sx={{ color: expandedFaq === i ? 'primary.main' : 'text.secondary' }} />
+              }
               sx={{ px: 2, py: 1.5, '& .MuiAccordionSummary-content': { my: 1 } }}
             >
-              <Typography variant="h5" sx={{ fontWeight: expandedFaq === i ? 700 : 500, color: expandedFaq === i ? 'primary.main' : 'text.primary', pr: 2 }}>
+              <Typography
+                variant="h5"
+                sx={{
+                  fontWeight: expandedFaq === i ? 700 : 500,
+                  color: expandedFaq === i ? 'primary.main' : 'text.primary',
+                  pr: 2,
+                  fontSize: '1.05rem',
+                }}
+              >
                 {faq.q}
               </Typography>
             </AccordionSummary>
             <AccordionDetails sx={{ px: 2, pb: 3, pt: 0 }}>
-              <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>{faq.a}</Typography>
+              <Typography color="text.secondary" sx={{ lineHeight: 1.75 }}>{faq.a}</Typography>
             </AccordionDetails>
           </Accordion>
         ))}
       </Container>
 
-      {/* CTA */}
-      <Box sx={{ bgcolor: '#F0FDF4', py: 8 }}>
+      {/* Final CTA */}
+      <Box sx={{ bgcolor: '#F0FDF4', py: { xs: 7, md: 9 } }}>
         <Container maxWidth="sm" sx={{ textAlign: 'center' }}>
-          <Typography variant="h3" sx={{ mb: 2 }}>Ready to learn smarter?</Typography>
-          <Typography color="text.secondary" sx={{ mb: 3 }}>Join thousands of university students already using StudySpace.</Typography>
-          <Button variant="contained" size="large" onClick={() => navigate('/signup')}>Create Free Account</Button>
+          <Typography variant="h3" sx={{ mb: 1.5 }}>Ready to study smarter?</Typography>
+          <Typography color="text.secondary" sx={{ mb: 3.5, fontSize: '1.05rem' }}>
+            Sign up free in two minutes. No credit card. Cancel any time — there's nothing to cancel.
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
+            <Button variant="contained" size="large" onClick={goPrimary} endIcon={<ArrowForward />}>
+              {user ? 'Find a Tutor' : 'Create Free Account'}
+            </Button>
+            <Button variant="outlined" size="large" onClick={() => navigate('/about')}>
+              Learn More
+            </Button>
+          </Stack>
         </Container>
       </Box>
 
-      {/* Footer */}
-      <Box sx={{ bgcolor: '#004D2C', color: 'white', py: 4 }}>
-        <Container maxWidth="lg">
-          <Grid container spacing={4}>
-            <Grid item xs={12} md={4}>
-              <Typography variant="h5" sx={{ color: 'white', mb: 1 }}>StudySpace</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                Tutoring, community, and AI support — all in one place.
-              </Typography>
-            </Grid>
-            <Grid item xs={6} md={2}>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>PLATFORM</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mt: 1 }}>Find a Tutor</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>Community</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>AI Assistant</Typography>
-            </Grid>
-            <Grid item xs={6} md={2}>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>COMPANY</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mt: 1 }}>About</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', cursor: 'pointer' }} onClick={() => navigate('/contact')}>Contact</Typography>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>LEGAL</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mt: 1 }}>Privacy Policy</Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>Terms & Conditions</Typography>
-            </Grid>
-          </Grid>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', display: 'block', mt: 4, textAlign: 'center' }}>
-            © 2026 StudySpace. All rights reserved.
-          </Typography>
-        </Container>
-      </Box>
+      <Footer />
     </Box>
   );
 }
