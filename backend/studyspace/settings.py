@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
+    'storages',
     # Local apps
     'accounts',
     'tutoring',
@@ -137,6 +138,17 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+USE_GCS_MEDIA = env_bool('USE_GCS_MEDIA', False)
+GS_BUCKET_NAME = os.environ.get('GS_BUCKET_NAME', '')
+GS_PROJECT_ID = os.environ.get('GS_PROJECT_ID', '')
+GS_LOCATION = os.environ.get('GS_LOCATION', 'media')
+GS_DEFAULT_ACL = None
+GS_QUERYSTRING_AUTH = env_bool('GS_QUERYSTRING_AUTH', True)
+GS_IAM_SIGN_BLOB = env_bool('GS_IAM_SIGN_BLOB', False)
+GS_SA_EMAIL = os.environ.get('GS_SA_EMAIL') or None
+GS_FILE_OVERWRITE = False
+
+
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
@@ -145,6 +157,17 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+
+if USE_GCS_MEDIA:
+    if not GS_BUCKET_NAME:
+        raise RuntimeError('GS_BUCKET_NAME must be set when USE_GCS_MEDIA=True.')
+
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.gcloud.GoogleCloudStorage',
+    }
+
+    MEDIA_URL = f'https://storage.googleapis.com/{GS_BUCKET_NAME}/{GS_LOCATION}/'
+
 
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
