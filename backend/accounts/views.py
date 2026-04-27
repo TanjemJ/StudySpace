@@ -6,10 +6,12 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
+from django.db.models import Max
 from django.template.loader import render_to_string
 from django.conf import settings
 import uuid
 import json
+import math
 from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -780,6 +782,7 @@ class TutorSearchView(generics.ListAPIView):
     filterset_fields = ['verification_status']
     search_fields = ['user__display_name', 'subjects', 'bio', 'location_city']
     ordering_fields = ['hourly_rate', 'average_rating', 'total_sessions']
+    min_hourly_rate = 10
 
     def get_queryset(self):
         qs = TutorProfile.objects.filter(
@@ -807,6 +810,36 @@ class TutorSearchView(generics.ListAPIView):
             qs = qs.filter(average_rating__gte=min_rating)
 
         return qs
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+
+        max_rate = (
+            TutorProfile.objects
+            .filter(verification_status=TutorProfile.VerificationStatus.APPROVED)
+            .aggregate(max_rate=Max('hourly_rate'))
+            .get('max_rate')
+        )
+        rounded_max = self.min_hourly_rate
+        if max_rate:
+            rounded_max = max(
+                self.min_hourly_rate,
+                int(math.ceil(float(max_rate) / 10) * 10),
+            )
+
+        price_bounds = {
+            'min': self.min_hourly_rate,
+            'max': rounded_max,
+        }
+
+        if isinstance(response.data, dict):
+            response.data['price_bounds'] = price_bounds
+        else:
+            response.data = {
+                'results': response.data,
+                'price_bounds': price_bounds,
+            }
+        return response
 
 
 class TutorDetailView(generics.RetrieveAPIView):

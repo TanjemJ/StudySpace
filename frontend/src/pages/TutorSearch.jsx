@@ -28,6 +28,26 @@ const SESSION_TYPES = [
   { value: 'both', label: 'Both' },
 ];
 
+const PRICE_MIN = 10;
+
+function roundPriceMax(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return PRICE_MIN + 10;
+  return Math.max(PRICE_MIN + 10, Math.ceil(numeric / 10) * 10);
+}
+
+function getPriceBoundsFromTutors(list) {
+  const highestRate = list.reduce((highest, tutor) => {
+    const rate = Number(tutor.hourly_rate);
+    return Number.isFinite(rate) ? Math.max(highest, rate) : highest;
+  }, PRICE_MIN);
+
+  return {
+    min: PRICE_MIN,
+    max: roundPriceMax(highestRate),
+  };
+}
+
 export default function TutorSearch() {
   const navigate = useNavigate();
   const [tutors, setTutors] = useState([]);
@@ -37,16 +57,23 @@ export default function TutorSearch() {
   // Filters
   const [selectedSubjects, setSelectedSubjects] = useState([]);
   const [locationFilter, setLocationFilter] = useState('');
-  const [priceRange, setPriceRange] = useState([10, 50]);
+  const [priceBounds, setPriceBounds] = useState({ min: PRICE_MIN, max: 50 });
+  const [priceRange, setPriceRange] = useState([PRICE_MIN, 50]);
   const [minRating, setMinRating] = useState(0);
   const [availability, setAvailability] = useState([]);
   const [sessionType, setSessionType] = useState('');
 
   useEffect(() => {
     api.get('/auth/tutors/').then(r => {
-      const list = r.data.results || r.data || [];
+      const list = Array.isArray(r.data) ? r.data : (r.data.results || []);
+      const bounds = r.data.price_bounds
+        ? { min: PRICE_MIN, max: roundPriceMax(r.data.price_bounds.max) }
+        : getPriceBoundsFromTutors(list);
+
       setAllTutors(list);
       setTutors(list);
+      setPriceBounds(bounds);
+      setPriceRange([bounds.min, bounds.max]);
     });
   }, []);
 
@@ -105,7 +132,7 @@ export default function TutorSearch() {
 
   const resetFilters = () => {
     setSelectedSubjects([]);
-    setPriceRange([10, 50]);
+    setPriceRange([priceBounds.min, priceBounds.max]);
     setMinRating(0);
     setAvailability([]);
     setSessionType('');
@@ -117,7 +144,7 @@ export default function TutorSearch() {
     selectedSubjects.length + availability.length +
     (minRating > 0 ? 1 : 0) +
     (sessionType ? 1 : 0) +
-    (priceRange[0] !== 10 || priceRange[1] !== 50 ? 1 : 0);
+    (priceRange[0] !== priceBounds.min || priceRange[1] !== priceBounds.max ? 1 : 0);
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -174,8 +201,14 @@ export default function TutorSearch() {
                 <Slider
                   value={priceRange}
                   onChange={(_, v) => setPriceRange(v)}
-                  min={10} max={50} valueLabelDisplay="auto"
-                  marks={[{ value: 10, label: '£10' }, { value: 50, label: '£50' }]}
+                  min={priceBounds.min}
+                  max={priceBounds.max}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={(value) => `£${value}`}
+                  marks={[
+                    { value: priceBounds.min, label: `£${priceBounds.min}` },
+                    { value: priceBounds.max, label: `£${priceBounds.max}` },
+                  ]}
                 />
               </Box>
             </Box>

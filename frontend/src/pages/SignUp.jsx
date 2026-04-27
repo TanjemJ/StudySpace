@@ -330,6 +330,12 @@ export default function SignUp() {
   };
 
   const handleTutorStep4 = async () => {
+    const rate = Number(hourlyRate);
+    if (!Number.isFinite(rate) || rate < 10) {
+      setError('Hourly rate must be at least £10.');
+      return;
+    }
+
     if (!locationCity.trim()) {
       setError('Please tell us which city you\'re based in — students need this for in-person bookings.');
       return;
@@ -338,7 +344,7 @@ export default function SignUp() {
     try {
       await api.post('/auth/register/step4/tutor/', {
         registration_id: registrationId,
-        hourly_rate: parseFloat(hourlyRate),
+        hourly_rate: rate,
         experience_years: parseInt(experience, 10),
         personal_statement: personalStatement,
         location_city: locationCity.trim(),
@@ -610,7 +616,8 @@ export default function SignUp() {
               <>
                 <TextField fullWidth type="number" label="Hourly rate (£)" value={hourlyRate}
                   onChange={(e) => setHourlyRate(e.target.value)} sx={{ mb: 2 }} required
-                  inputProps={{ min: 0, step: 0.5 }} />
+                  inputProps={{ min: 10, step: 0.5 }}
+                  helperText="Minimum £10 per hour." />
                 <TextField fullWidth type="number" label="Years of experience" value={experience}
                   onChange={(e) => setExperience(e.target.value)} sx={{ mb: 2 }} required
                   inputProps={{ min: 0 }} />

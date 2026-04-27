@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from decimal import Decimal
 
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
@@ -116,7 +117,12 @@ class RegisterTutorStep4Serializer(serializers.Serializer):
     The location fields are required because students need to see where the tutor
     is based when deciding whether to book.
     """
-    hourly_rate = serializers.DecimalField(max_digits=6, decimal_places=2)
+    hourly_rate = serializers.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        min_value=Decimal('10.00'),
+        error_messages={'min_value': 'Hourly rate must be at least 10 GBP.'},
+    )
     experience_years = serializers.IntegerField(min_value=0)
     personal_statement = serializers.CharField(max_length=3000, required=False, allow_blank=True)
     location_city = serializers.CharField(max_length=100)
