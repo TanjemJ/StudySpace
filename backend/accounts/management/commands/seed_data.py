@@ -2,8 +2,10 @@ import random
 from datetime import date, time, timedelta
 from decimal import Decimal
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
+from django.conf import settings
+
 
 from accounts.models import User, StudentProfile, TutorProfile, Notification
 from tutoring.models import AvailabilitySlot, Booking, PaymentRecord, Review
@@ -167,6 +169,13 @@ class Command(BaseCommand):
     help = 'Seed StudySpace with realistic sample data.'
 
     def handle(self, *args, **options):
+
+        if not settings.DEBUG:
+            raise CommandError(
+                'seed_data is for local development only. '
+                'Refusing to run against a non-DEBUG environment.'
+            )
+
         self.stdout.write(self.style.WARNING('Seeding StudySpace database...'))
 
         # ---- Admin ----

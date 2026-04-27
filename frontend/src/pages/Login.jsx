@@ -232,10 +232,6 @@ export default function Login() {
             </Typography>
           </CardContent>
         </Card>
-
-        <Typography variant="caption" textAlign="center" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
-          Demo: alice@lsbu.ac.uk / Student123! or dr.jane@lsbu.ac.uk / Tutor123!
-        </Typography>
       </Container>
     </Box>
   );

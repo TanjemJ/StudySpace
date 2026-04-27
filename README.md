@@ -88,20 +88,6 @@ Go to **http://localhost:5173** — you should see the StudySpace landing page.
 
 ---
 
-## Demo Login Credentials
-
-| Role    | Email                    | Password     |
-|---------|--------------------------|--------------|
-| Admin   | admin@studyspace.com     | Admin123!    |
-| Student | alice@lsbu.ac.uk         | Student123!  |
-| Student | bob@kcl.ac.uk            | Student123!  |
-| Tutor   | dr.jane@lsbu.ac.uk      | Tutor123!    |
-| Tutor   | prof.ahmed@kcl.ac.uk     | Tutor123!    |
-
-Django Admin panel: **http://127.0.0.1:8000/admin/**
-
----
-
 ## Project Structure
 
 ```

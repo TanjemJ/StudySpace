@@ -523,11 +523,6 @@ export default function SignUp() {
                   The code expires in 30 minutes. If you close the tab, you can return to this page
                   and pick up where you left off.
                 </Typography>
-                {devCode && (
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    Development mode — your code is: <strong>{devCode}</strong>
-                  </Alert>
-                )}
                 <TextField fullWidth label="Verification code" value={code}
                   onChange={(e) => setCode(e.target.value)} sx={{ mb: 2 }} required
                   inputProps={{ maxLength: 6 }} />
