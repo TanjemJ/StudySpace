@@ -1,0 +1,31 @@
+# Local environment and secrets
+.env
+.env.*
+*.env
+
+# Python virtual environments and caches
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local media and collected static output
+media/
+staticfiles/
+
+# Local database files
+*.sqlite3
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
