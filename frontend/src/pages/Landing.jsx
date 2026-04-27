@@ -198,9 +198,9 @@ export default function Landing() {
                 variant="body1"
                 sx={{ color: 'rgba(255,255,255,0.92)', mb: 4, fontSize: '1.1rem', maxWidth: 560, lineHeight: 1.65 }}
               >
-                Verified tutors. University forums you actually belong to. A guided AI assistant that helps
-                you understand, not just finish. StudySpace gives you the trusted study tools UK students
-                deserve, in one connected platform.
+                StudySpace brings verified tutors, university-only forums, and guided AI support into one
+                trusted platform, helping UK students understand their work, connect with their campus,
+                and study with confidence.
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <Button
