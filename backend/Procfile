@@ -1,1 +1,4 @@
 web: daphne -b 0.0.0.0 -p $PORT studyspace.asgi:application
+migrate: python manage.py migrate --noinput
+syncdomains: python manage.py sync_university_domains
+ensureadmin: python manage.py ensure_admin_user
