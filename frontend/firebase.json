@@ -8,6 +8,27 @@
     ],
     "rewrites": [
       {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "studyspace-backend",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/admin{,/**}",
+        "run": {
+          "serviceId": "studyspace-backend",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "/static/**",
+        "run": {
+          "serviceId": "studyspace-backend",
+          "region": "europe-west2"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
