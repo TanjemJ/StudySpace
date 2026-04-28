@@ -13,4 +13,4 @@ PyJWT[crypto]==2.12.1
 channels[daphne]
 channels-redis==4.3.0
 whitenoise==6.9.0
-django-storages[google]==1.14.4
+django-storages[google]==1.14.6
