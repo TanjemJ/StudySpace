@@ -162,8 +162,22 @@ if USE_GCS_MEDIA:
     if not GS_BUCKET_NAME:
         raise RuntimeError('GS_BUCKET_NAME must be set when USE_GCS_MEDIA=True.')
 
+    gcs_options = {
+        'bucket_name': GS_BUCKET_NAME,
+        'location': GS_LOCATION,
+        'default_acl': GS_DEFAULT_ACL,
+        'querystring_auth': GS_QUERYSTRING_AUTH,
+        'iam_sign_blob': GS_IAM_SIGN_BLOB,
+        'sa_email': GS_SA_EMAIL,
+        'file_overwrite': GS_FILE_OVERWRITE,
+    }
+
+    if GS_PROJECT_ID:
+        gcs_options['project_id'] = GS_PROJECT_ID
+
     STORAGES['default'] = {
         'BACKEND': 'storages.backends.gcloud.GoogleCloudStorage',
+        'OPTIONS': gcs_options,
     }
 
     MEDIA_URL = f'https://storage.googleapis.com/{GS_BUCKET_NAME}/{GS_LOCATION}/'
