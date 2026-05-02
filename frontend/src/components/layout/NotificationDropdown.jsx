@@ -11,6 +11,7 @@ import {
 } from '@mui/icons-material';
 
 const ICON_MAP = {
+  booking_request: <CalendarMonth sx={{ fontSize: 18, color: 'primary.main' }} />,
   booking_confirmed: <CalendarMonth sx={{ fontSize: 18, color: 'success.main' }} />,
   booking_cancelled: <CalendarMonth sx={{ fontSize: 18, color: 'error.main' }} />,
   booking_reminder: <CalendarMonth sx={{ fontSize: 18, color: 'warning.main' }} />,
@@ -18,6 +19,9 @@ const ICON_MAP = {
   forum_upvote: <Forum sx={{ fontSize: 18, color: 'primary.main' }} />,
   message: <Message sx={{ fontSize: 18, color: 'primary.main' }} />,
   verification_update: <VerifiedUser sx={{ fontSize: 18, color: 'success.main' }} />,
+  verification_approved: <VerifiedUser sx={{ fontSize: 18, color: 'success.main' }} />,
+  verification_info_requested: <Info sx={{ fontSize: 18, color: 'warning.main' }} />,
+  verification_rejected: <VerifiedUser sx={{ fontSize: 18, color: 'error.main' }} />,
   moderation_action: <Info sx={{ fontSize: 18, color: 'warning.main' }} />,
   system: <Info sx={{ fontSize: 18, color: 'text.secondary' }} />,
 };

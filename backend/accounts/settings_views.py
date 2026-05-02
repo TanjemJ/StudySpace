@@ -11,6 +11,7 @@ from django.conf import settings
 
 from .models import User, StudentProfile, TutorProfile, ContactMessage, EmailVerificationCode
 from .serializers import UserSerializer, StudentProfileSerializer, TutorProfileSerializer, ContactMessageSerializer
+from .media_urls import safe_file_url
 from .university_email_service import validate_university_email, university_email_is_verified_elsewhere
 from .views import send_verification_email
 
@@ -346,7 +347,7 @@ class UploadAvatarView(views.APIView):
             user.avatar.delete(save=False)
         user.avatar = avatar
         user.save()
-        return Response({'message': 'Avatar uploaded.', 'avatar_url': user.avatar.url if user.avatar else None})
+        return Response({'message': 'Avatar uploaded.', 'avatar_url': safe_file_url(user.avatar)})
 
     def delete(self, request):
         user = request.user

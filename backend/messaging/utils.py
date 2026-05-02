@@ -1,3 +1,6 @@
+from accounts.media_urls import safe_file_url
+
+
 def serialize_message_payload(message, viewer=None):
     sender = message.sender
 
@@ -10,7 +13,7 @@ def serialize_message_payload(message, viewer=None):
             'first_name': sender.first_name,
             'last_name': sender.last_name,
             'role': sender.role,
-            'avatar_url': sender.avatar.url if sender.avatar else '',
+            'avatar_url': safe_file_url(sender.avatar, fallback=''),
         },
         'body': message.body,
         'created_at': message.created_at.isoformat(),

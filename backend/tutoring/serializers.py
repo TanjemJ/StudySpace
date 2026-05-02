@@ -4,6 +4,7 @@ from .models import (
     BookingChangeRequest, BookingDocument,
 )
 from accounts.serializers import UserSerializer
+from accounts.media_urls import safe_file_url
 
 
 class AvailabilitySlotSerializer(serializers.ModelSerializer):
@@ -33,8 +34,7 @@ class BookingDocumentSerializer(serializers.ModelSerializer):
         if not obj.file:
             return None
         request = self.context.get('request')
-        url = obj.file.url
-        return request.build_absolute_uri(url) if request else url
+        return safe_file_url(obj.file, request=request, absolute=bool(request))
 
     def get_size_bytes(self, obj):
         try:
@@ -103,10 +103,10 @@ class BookingSerializer(serializers.ModelSerializer):
                             'cancelled_at', 'cancelled_by', 'refund_percent']
 
     def get_student_avatar(self, obj):
-        return obj.student.avatar.url if obj.student.avatar else None
+        return safe_file_url(obj.student.avatar)
 
     def get_tutor_avatar(self, obj):
-        return obj.tutor.user.avatar.url if obj.tutor.user.avatar else None
+        return safe_file_url(obj.tutor.user.avatar)
 
     def get_pending_change(self, obj):
         cr = obj.change_requests.filter(status='pending').order_by('-created_at').first()
@@ -186,7 +186,7 @@ class ReviewSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'student', 'tutor', 'booking', 'created_at']
 
     def get_student_avatar(self, obj):
-        return obj.student.avatar.url if obj.student.avatar else None
+        return safe_file_url(obj.student.avatar)
 
 
 class PaymentRecordSerializer(serializers.ModelSerializer):

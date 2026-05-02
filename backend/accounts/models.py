@@ -228,6 +228,8 @@ class TutorProfile(models.Model):
     dbs_certificate = models.FileField(upload_to='verification/dbs/', null=True, blank=True)
     personal_statement = models.TextField(blank=True, max_length=3000)
     rejection_reason = models.TextField(blank=True)
+    info_request_message = models.TextField(blank=True)
+    verification_submitted_at = models.DateTimeField(null=True, blank=True)
 
     # Stats
     average_rating = models.FloatField(default=0.0)
@@ -282,10 +284,14 @@ class Notification(models.Model):
     """Platform notifications for all user types."""
 
     class NotifType(models.TextChoices):
+        BOOKING_REQUEST = 'booking_request', 'Booking Request'
         BOOKING_CONFIRMED = 'booking_confirmed', 'Booking Confirmed'
         BOOKING_CANCELLED = 'booking_cancelled', 'Booking Cancelled'
         BOOKING_REMINDER = 'booking_reminder', 'Booking Reminder'
         VERIFICATION_UPDATE = 'verification_update', 'Verification Update'
+        VERIFICATION_APPROVED = 'verification_approved', 'Verification Approved'
+        VERIFICATION_INFO_REQUESTED = 'verification_info_requested', 'Verification Info Requested'
+        VERIFICATION_REJECTED = 'verification_rejected', 'Verification Rejected'
         FORUM_REPLY = 'forum_reply', 'Forum Reply'
         FORUM_UPVOTE = 'forum_upvote', 'Forum Upvote'
         MESSAGE = 'message', 'New Message'

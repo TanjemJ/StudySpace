@@ -9,10 +9,12 @@ Endpoints:
     DELETE /api/forum/admin/posts/<post_id>/delete/
     DELETE /api/forum/admin/replies/<reply_id>/delete/
 """
+from django.db.models.functions import Coalesce
 from rest_framework import permissions, views
 from rest_framework.response import Response
 
 from .models import User, TutorProfile, Notification
+from .media_urls import safe_file_url
 
 
 def _require_admin(request):
@@ -41,7 +43,10 @@ class AdminVerificationQueueView(views.APIView):
 
         profiles = TutorProfile.objects.filter(
             verification_status__in=['pending', 'under_review', 'info_requested'],
-        ).select_related('user').order_by('user__created_at')
+        ).select_related('user').order_by(
+            Coalesce('verification_submitted_at', 'user__created_at').asc(),
+            'user__created_at',
+        )
 
         data = []
         for p in profiles:
@@ -52,7 +57,7 @@ class AdminVerificationQueueView(views.APIView):
                     documents.append({
                         'id': str(d.id),
                         'type': d.document_type,
-                        'file_url': request.build_absolute_uri(d.file.url) if d.file else None,
+                        'file_url': safe_file_url(d.file, request=request, absolute=True),
                         'uploaded_at': d.uploaded_at.isoformat() if d.uploaded_at else None,
                     })
 
@@ -67,9 +72,11 @@ class AdminVerificationQueueView(views.APIView):
                     documents.append({
                         'id': f'legacy-{field_name}',
                         'type': doc_type,
-                        'file_url': request.build_absolute_uri(f.url),
+                        'file_url': safe_file_url(f, request=request, absolute=True),
                         'uploaded_at': None,
                     })
+
+            submitted_at = p.verification_submitted_at or p.user.created_at
 
             data.append({
                 'id': str(p.user.id),
@@ -84,7 +91,8 @@ class AdminVerificationQueueView(views.APIView):
                 'personal_statement': p.personal_statement,
                 'verification_status': p.verification_status,
                 'rejection_reason': p.rejection_reason,
-                'submitted_at': p.user.created_at.isoformat() if p.user.created_at else None,
+                'info_request_message': p.info_request_message,
+                'submitted_at': submitted_at.isoformat() if submitted_at else None,
                 'documents': documents,
             })
         return Response(data)
@@ -110,10 +118,11 @@ class AdminVerificationActionView(views.APIView):
         if action == 'approve':
             profile.verification_status = 'approved'
             profile.rejection_reason = ''
+            profile.info_request_message = ''
             profile.save()
             Notification.objects.create(
                 user=profile.user,
-                notification_type='verification_approved',
+                notification_type=Notification.NotifType.VERIFICATION_APPROVED,
                 title='Your tutor profile has been approved!',
                 message='You can now receive booking requests from students.',
                 link='/tutor-dashboard',
@@ -123,11 +132,11 @@ class AdminVerificationActionView(views.APIView):
             if not message:
                 return Response({'error': 'A message is required when requesting more info.'}, status=400)
             profile.verification_status = 'info_requested'
-            profile.rejection_reason = message  # reuse field to carry the message
+            profile.info_request_message = message
             profile.save()
             Notification.objects.create(
                 user=profile.user,
-                notification_type='verification_info_requested',
+                notification_type=Notification.NotifType.VERIFICATION_INFO_REQUESTED,
                 title='Additional information needed',
                 message=f'An admin has requested more information: {message}',
                 link='/tutor-dashboard',
@@ -138,10 +147,11 @@ class AdminVerificationActionView(views.APIView):
                 return Response({'error': 'A reason is required when rejecting.'}, status=400)
             profile.verification_status = 'rejected'
             profile.rejection_reason = reason
+            profile.info_request_message = ''
             profile.save()
             Notification.objects.create(
                 user=profile.user,
-                notification_type='verification_rejected',
+                notification_type=Notification.NotifType.VERIFICATION_REJECTED,
                 title='Verification application rejected',
                 message=f'Reason: {reason}. Please contact support if you wish to appeal.',
                 link='/tutor-dashboard',

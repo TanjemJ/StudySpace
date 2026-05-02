@@ -179,7 +179,7 @@ export default function TutorDashboard() {
       {user?.tutor_profile?.verification_status === 'info_requested' && (
         <Alert severity="info" sx={{ mb: 3 }}>
           <strong>More information needed:</strong>{' '}
-          {user.tutor_profile.rejection_reason || 'Check your notifications.'}
+          {user.tutor_profile.info_request_message || 'Check your notifications.'}
         </Alert>
       )}
 

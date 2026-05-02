@@ -21,8 +21,14 @@ def env_list(name, default):
     return [item.strip() for item in value.split(',') if item.strip()]
 
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
 DEBUG = env_bool('DEBUG', True)
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'dev-secret-key-change-in-production'
+    else:
+        raise RuntimeError('DJANGO_SECRET_KEY must be set when DEBUG=False.')
+
 ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1'])
 
 INSTALLED_APPS = [

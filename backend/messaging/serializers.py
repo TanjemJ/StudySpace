@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from accounts.models import User
+from accounts.media_urls import safe_file_url
 from .models import Conversation, ConversationParticipant, ChatMessage
 
 
@@ -12,7 +13,7 @@ class ChatUserSerializer(serializers.ModelSerializer):
         fields = ['id', 'display_name', 'first_name', 'last_name', 'role', 'avatar_url']
 
     def get_avatar_url(self, obj):
-        return obj.avatar.url if obj.avatar else ''
+        return safe_file_url(obj.avatar, fallback='')
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):

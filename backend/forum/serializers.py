@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from accounts.media_urls import safe_file_url
 from .models import ForumCategory, ForumPost, ForumReply, PostVote, Report
 
 
@@ -41,7 +42,7 @@ class ForumReplySerializer(serializers.ModelSerializer):
     def get_author_avatar(self, obj):
         if obj.is_anonymous or obj.author.is_deleted:
             return None
-        return obj.author.avatar.url if obj.author.avatar else None
+        return safe_file_url(obj.author.avatar)
 
     def get_author_id(self, obj):
         if obj.is_anonymous or obj.author.is_deleted:
@@ -105,7 +106,7 @@ class ForumPostSerializer(serializers.ModelSerializer):
     def get_author_avatar(self, obj):
         if obj.is_anonymous or obj.author.is_deleted:
             return None
-        return obj.author.avatar.url if obj.author.avatar else None
+        return safe_file_url(obj.author.avatar)
 
     def get_author_id(self, obj):
         if obj.is_anonymous or obj.author.is_deleted:

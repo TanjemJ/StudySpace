@@ -20,6 +20,7 @@ everything cleanly.
 
 
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import permissions, status, views
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -150,6 +151,7 @@ class RegisterTutorStep5View(views.APIView):
                 location_city=pending.location_city,
                 location_postcode_area=pending.location_postcode_area,
                 verification_status=TutorProfile.VerificationStatus.PENDING,
+                verification_submitted_at=timezone.now(),
             )
 
             for f, doc_type in uploaded:

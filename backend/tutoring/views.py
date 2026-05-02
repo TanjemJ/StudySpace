@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import generics, permissions, status, views
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -142,47 +142,56 @@ class BookingCreateView(views.APIView):
         data = serializer.validated_data
 
         try:
-            slot = AvailabilitySlot.objects.get(id=data['slot_id'], is_booked=False)
-        except AvailabilitySlot.DoesNotExist:
-            return Response({'error': 'Slot not available.'}, status=400)
+            with transaction.atomic():
+                try:
+                    slot = (
+                        AvailabilitySlot.objects
+                        .select_for_update()
+                        .select_related('tutor__user')
+                        .get(id=data['slot_id'], is_booked=False)
+                    )
+                except AvailabilitySlot.DoesNotExist:
+                    return Response({'error': 'This slot is no longer available.'}, status=409)
 
-        if request.user.id == slot.tutor.user.id:
-            return Response({'error': 'You cannot book a session with yourself.'}, status=400)
+                if request.user.id == slot.tutor.user.id:
+                    return Response({'error': 'You cannot book a session with yourself.'}, status=400)
 
-        if slot.date < timezone.localdate():
-            return Response({'error': 'Cannot book a slot in the past.'}, status=400)
+                if slot.date < timezone.localdate():
+                    return Response({'error': 'Cannot book a slot in the past.'}, status=400)
 
-        booking = Booking.objects.create(
-            student=request.user,
-            tutor=slot.tutor,
-            slot=slot,
-            subject=data['subject'],
-            session_type=data.get('session_type', 'video'),
-            # New (2026-04-25):
-            video_platform=data.get('video_platform', ''),
-            location_suggestion=data.get('location_suggestion', ''),
-            student_note=data.get('student_note', ''),
-            price=slot.tutor.hourly_rate,
-            status=Booking.Status.PENDING,
-        )
-        slot.is_booked = True
-        slot.save()
+                booking = Booking.objects.create(
+                    student=request.user,
+                    tutor=slot.tutor,
+                    slot=slot,
+                    subject=data['subject'],
+                    session_type=data.get('session_type', 'video'),
+                    # New (2026-04-25):
+                    video_platform=data.get('video_platform', ''),
+                    location_suggestion=data.get('location_suggestion', ''),
+                    student_note=data.get('student_note', ''),
+                    price=slot.tutor.hourly_rate,
+                    status=Booking.Status.PENDING,
+                )
+                slot.is_booked = True
+                slot.save(update_fields=['is_booked'])
 
-        PaymentRecord.objects.create(
-            booking=booking,
-            amount=booking.price,
-            transaction_id=f'test_txn_{booking.id}',
-            status=PaymentRecord.PaymentStatus.COMPLETED,
-        )
+                PaymentRecord.objects.create(
+                    booking=booking,
+                    amount=booking.price,
+                    payment_method='pending',
+                    status=PaymentRecord.PaymentStatus.PENDING,
+                )
 
-        Notification.objects.create(
-            user=slot.tutor.user,
-            notification_type='booking_confirmed',
-            title='New booking request',
-            message=(f'{request.user.display_name} requested a {data["subject"]} session '
-                     f'on {slot.date} at {slot.start_time}.'),
-            link='/tutor-dashboard',
-        )
+                Notification.objects.create(
+                    user=slot.tutor.user,
+                    notification_type=Notification.NotifType.BOOKING_REQUEST,
+                    title='New booking request',
+                    message=(f'{request.user.display_name} requested a {data["subject"]} session '
+                             f'on {slot.date} at {slot.start_time}.'),
+                    link='/tutor-dashboard',
+                )
+        except IntegrityError:
+            return Response({'error': 'This slot is no longer available.'}, status=409)
 
         return Response(BookingSerializer(booking, context={'request': request}).data, status=201)
 
@@ -381,6 +390,11 @@ def _apply_refund(booking, percent):
     try:
         payment = booking.payment
     except PaymentRecord.DoesNotExist:
+        return
+    if payment.status not in {
+        PaymentRecord.PaymentStatus.COMPLETED,
+        PaymentRecord.PaymentStatus.PARTIALLY_REFUNDED,
+    }:
         return
     if percent >= 100:
         payment.refunded_amount = payment.amount

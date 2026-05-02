@@ -16,6 +16,7 @@ from .models import (
     Notification,
     ContactMessage,
 )
+from .media_urls import safe_file_url
 
 
 class PasswordStrengthSerializer(serializers.Serializer):
@@ -142,6 +143,7 @@ class LoginSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     can_change_display_name = serializers.BooleanField(read_only=True)
     display_name_change_available_at = serializers.DateTimeField(read_only=True)
+    avatar = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -154,6 +156,9 @@ class UserSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = ['id', 'email', 'role', 'is_deleted', 'created_at']
+
+    def get_avatar(self, obj):
+        return safe_file_url(obj.avatar)
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):

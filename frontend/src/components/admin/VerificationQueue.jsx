@@ -190,9 +190,9 @@ export default function VerificationQueue({ onChange }) {
                   </Grid>
                 )}
 
-                {tutor.rejection_reason && (
+                {(tutor.info_request_message || tutor.rejection_reason) && (
                   <Alert severity="info" sx={{ mb: 2 }}>
-                    <strong>Previous note:</strong> {tutor.rejection_reason}
+                    <strong>Previous note:</strong> {tutor.info_request_message || tutor.rejection_reason}
                   </Alert>
                 )}
 

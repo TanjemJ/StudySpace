@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import User
 from .serializers import UserSerializer, StudentProfileSerializer, TutorProfileSerializer
+from .media_urls import safe_file_url
 
 
 class PublicProfileView(views.APIView):
@@ -30,7 +31,7 @@ class PublicProfileView(views.APIView):
             'first_name': user.first_name,
             'last_name': user.last_name,
             'role': user.role,
-            'avatar': user.avatar.url if user.avatar else None,
+            'avatar': safe_file_url(user.avatar),
             'created_at': user.created_at.isoformat(),
             'deleted': False,
         }
