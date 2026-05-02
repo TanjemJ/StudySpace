@@ -9,9 +9,9 @@ import {
   ToggleButtonGroup, ToggleButton, Tooltip,
 } from '@mui/material';
 import {
-  VerifiedUser, Close, VideoCall, Person, ArrowBack, ArrowForward, CheckCircle,
+  VerifiedUser, Close, VideoCall, Person, ArrowBack, ArrowForward,
   ChevronLeft, ChevronRight, Today as TodayIcon, LocationOn,
-  CloudUpload, InsertDriveFile,
+  CloudUpload, InsertDriveFile, Payments,
 } from '@mui/icons-material';
 
 // ---- Booking window config ----
@@ -88,6 +88,7 @@ export default function TutorProfile() {
   const [bookingError, setBookingError] = useState('');
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [checkoutRedirectUrl, setCheckoutRedirectUrl] = useState('');
 
   // File attachments (added 2026-04-25 — students can now attach files at booking time)
   const [bookingDocs, setBookingDocs] = useState([]);    // [{ file, description }]
@@ -119,6 +120,7 @@ export default function TutorProfile() {
     setBookingDocs([]);
     setBookingError('');
     setBookingSuccess(false);
+    setCheckoutRedirectUrl('');
     setWeekStart(earliestMonday);
   };
 
@@ -188,9 +190,9 @@ export default function TutorProfile() {
         );
       }
       if (checkoutUrl) {
+        setCheckoutRedirectUrl(checkoutUrl);
         setBookingSuccess(true);
         setBookingStep(2);
-        window.location.assign(checkoutUrl);
         return;
       }
       setBookingSuccess(true);
@@ -616,17 +618,25 @@ export default function TutorProfile() {
           {/* Step 2: Confirmation */}
           {bookingStep === 2 && bookingSuccess && (
             <Box sx={{ textAlign: 'center', py: 3 }}>
-              <CheckCircle sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
-              <Typography variant="h3" sx={{ mb: 1 }}>Secure Checkout</Typography>
+              <Payments sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
+              <Typography variant="h3" sx={{ mb: 1 }}>Ready for Secure Checkout</Typography>
               <Typography color="text.secondary" sx={{ mb: 3 }}>
                 Your session with {tutor.user?.first_name} has been reserved.
-                You'll be taken to Stripe to finish payment.
+                Complete payment with Stripe, then you will return to your bookings.
               </Typography>
               <Stack direction="row" spacing={2} justifyContent="center">
-                <Button variant="contained" onClick={() => navigate('/bookings')}>
+                {checkoutRedirectUrl && (
+                  <Button
+                    variant="contained"
+                    startIcon={<Payments />}
+                    onClick={() => window.location.assign(checkoutRedirectUrl)}
+                  >
+                    Continue to Payment
+                  </Button>
+                )}
+                <Button variant="outlined" onClick={() => navigate('/bookings')}>
                   View My Bookings
                 </Button>
-                <Button variant="outlined" onClick={() => setBookingOpen(false)}>Close</Button>
               </Stack>
             </Box>
           )}
@@ -653,7 +663,7 @@ export default function TutorProfile() {
                 variant="contained" onClick={handleBook}
                 disabled={bookingLoading || !subject}
               >
-                {bookingLoading ? 'Preparing checkout...' : `Continue to Payment £${tutor.hourly_rate}`}
+                {bookingLoading ? 'Preparing payment...' : `Reserve and Pay £${tutor.hourly_rate}`}
               </Button>
             )}
           </DialogActions>

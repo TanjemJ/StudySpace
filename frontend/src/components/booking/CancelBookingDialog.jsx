@@ -66,7 +66,7 @@ export default function CancelBookingDialog({
           </Typography>
           {!isTutor && (
             <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-              Cancellation policy — Full refund: more than 72h before · 50% refund: 24–72h before · No refund: less than 24h before
+              Cancellation policy: full refund more than 72 hours before, 50% refund 24 to 72 hours before, no refund less than 24 hours before.
             </Typography>
           )}
           {isTutor && (

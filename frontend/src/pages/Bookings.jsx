@@ -68,7 +68,7 @@ export default function Bookings() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('payment') === 'success') {
-      setSnackbar('Payment received. Your tutor will see the request shortly.');
+      setSnackbar('Payment received. The tutor can now review your booking request.');
       fetchBookings();
     }
     if (params.get('payment') === 'cancelled') {
@@ -321,7 +321,7 @@ export default function Bookings() {
                 )}
                 {!isTutor && b.status === 'pending_payment' && (
                   <Alert severity="warning" icon={<HourglassEmpty />} sx={{ mt: 1.5 }}>
-                    Payment is still being confirmed. The tutor will receive the request once Stripe confirms payment.
+                    Stripe is confirming your payment. The tutor will receive the request automatically once it clears.
                   </Alert>
                 )}
 

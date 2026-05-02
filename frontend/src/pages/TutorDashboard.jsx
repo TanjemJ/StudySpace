@@ -10,7 +10,7 @@ import {
 import {
   CheckCircle, Cancel, SwapHoriz, AccessTime, Payments, Star, VideoCall,
   Chat as ChatIcon, Person as PersonIcon, CalendarMonth, Schedule,
-  HourglassEmpty, AttachFile, EditNote, OpenInNew,
+  HourglassEmpty, AttachFile, EditNote, OpenInNew, Security,
 } from '@mui/icons-material';
 
 import ChangeRequestDialog from '../components/booking/ChangeRequestDialog';
@@ -45,6 +45,7 @@ export default function TutorDashboard() {
   const [snackbar, setSnackbar] = useState('');
   const [stripeStatus, setStripeStatus] = useState(null);
   const [stripeLoading, setStripeLoading] = useState(false);
+  const [stripeDialogOpen, setStripeDialogOpen] = useState(false);
 
   const fetchData = useCallback(() => {
     Promise.all([
@@ -61,7 +62,7 @@ export default function TutorDashboard() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('stripe') === 'return') {
-      setSnackbar('Stripe onboarding saved. Payment status is refreshing.');
+      setSnackbar('Stripe details saved. Payment status is refreshing.');
       fetchData();
     }
     if (params.get('stripe') === 'refresh') {
@@ -220,24 +221,24 @@ export default function TutorDashboard() {
               <Button
                 color="inherit"
                 size="small"
-                endIcon={<OpenInNew />}
-                onClick={startStripeOnboarding}
+                startIcon={<Payments />}
+                onClick={() => setStripeDialogOpen(true)}
                 disabled={stripeLoading}
               >
-                {stripeLoading ? 'Opening...' : 'Connect Stripe'}
+                Set up payments
               </Button>
             ) : null
           }
         >
-          <strong>Payment setup needed:</strong>{' '}
+          <strong>Payments not ready:</strong>{' '}
           {stripeStatus.configured
-            ? 'Connect Stripe before students can pay for your sessions.'
+            ? 'Set up Stripe before students can pay for your sessions.'
             : 'Stripe is not configured on the backend yet.'}
         </Alert>
       )}
       {user?.tutor_profile?.verification_status === 'approved' && stripeStatus?.ready_for_payments && (
         <Alert severity="success" sx={{ mb: 3 }}>
-          Stripe is connected. Students can pay for bookings with this tutor profile.
+          Stripe is connected. Students can pay securely for bookings with this tutor profile.
         </Alert>
       )}
       {user?.tutor_profile?.verification_status === 'pending' && (
@@ -538,6 +539,52 @@ export default function TutorDashboard() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDocsTarget(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Stripe setup dialog */}
+      <Dialog
+        open={stripeDialogOpen}
+        onClose={() => !stripeLoading && setStripeDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Payments color="primary" />
+          Set up secure payments
+        </DialogTitle>
+        <DialogContent dividers>
+          {pageError && <Alert severity="error" sx={{ mb: 2 }}>{pageError}</Alert>}
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            StudySpace uses Stripe Connect so students can pay by card and your tutor payouts stay separate from the platform.
+          </Typography>
+          <Stack spacing={1.25}>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <Security color="success" fontSize="small" />
+              <Typography variant="body2">
+                Stripe collects sensitive identity and payout details. StudySpace does not store bank details.
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+              <CheckCircle color="success" fontSize="small" />
+              <Typography variant="body2">
+                You will return to this dashboard once the Stripe-hosted setup is complete.
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStripeDialogOpen(false)} disabled={stripeLoading}>
+            Not now
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<OpenInNew />}
+            onClick={startStripeOnboarding}
+            disabled={stripeLoading}
+          >
+            {stripeLoading ? 'Preparing...' : 'Continue to Stripe'}
+          </Button>
         </DialogActions>
       </Dialog>
 
