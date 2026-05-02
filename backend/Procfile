@@ -2,4 +2,4 @@ web: sh -c 'python manage.py collectstatic --noinput && daphne -b 0.0.0.0 -p $PO
 migrate: python manage.py migrate --noinput
 syncdomains: python manage.py sync_university_domains
 ensureadmin: python manage.py ensure_admin_user
-seeddemo: python manage.py seed_demo_data --confirm-demo-data
+seeddemo: python manage.py seed_demo_data --confirm-demo-data --reset-demo
