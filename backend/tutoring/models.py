@@ -82,6 +82,7 @@ class Booking(models.Model):
         related_name='+',
     )
     refund_percent = models.IntegerField(default=0, help_text="0, 50 or 100")
+    payment_expires_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -175,6 +176,7 @@ class PaymentRecord(models.Model):
     payment_method = models.CharField(max_length=20, default='stripe')
     transaction_id = models.CharField(max_length=200, blank=True)
     stripe_checkout_session_id = models.CharField(max_length=255, blank=True, db_index=True)
+    stripe_checkout_url = models.URLField(max_length=1000, blank=True)
     stripe_payment_intent_id = models.CharField(max_length=255, blank=True, db_index=True)
     stripe_account_id = models.CharField(max_length=255, blank=True)
     platform_fee_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)

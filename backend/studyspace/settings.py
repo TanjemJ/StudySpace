@@ -282,3 +282,14 @@ STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
 STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'GBP').lower()
 STRIPE_PLATFORM_FEE_PERCENT = Decimal(os.environ.get('STRIPE_PLATFORM_FEE_PERCENT', '10'))
+
+
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+STRIPE_CHECKOUT_HOLD_MINUTES = min(1440, max(1, _env_int('STRIPE_CHECKOUT_HOLD_MINUTES', 10)))
+STRIPE_CHECKOUT_SESSION_MINUTES = min(1440, max(31, STRIPE_CHECKOUT_HOLD_MINUTES))

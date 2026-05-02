@@ -11,13 +11,13 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics, permissions, status, views
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
-from django.db.models import Avg
+from django.db.models import Avg, Q
 
 from .models import (
     AvailabilitySlot, Booking, PaymentRecord, Review,
     BookingChangeRequest, BookingDocument,
 )
-from accounts.models import Notification
+from accounts.models import Notification, TutorProfile
 from .serializers import (
     AvailabilitySlotSerializer, BookingSerializer, BookingCreateSerializer,
     ReviewSerializer, ReviewCreateSerializer,
@@ -90,6 +90,79 @@ def _remove_unpaid_booking(booking):
         slot.save(update_fields=['is_booked'])
 
 
+def _expire_checkout_session(session_id):
+    if not session_id or not settings.STRIPE_SECRET_KEY:
+        return
+    try:
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        stripe.checkout.Session.expire(session_id)
+    except STRIPE_ERROR:
+        logger.info('Unable to expire Stripe Checkout session %s.', session_id, exc_info=True)
+
+
+def _payment_hold_expires_at():
+    return timezone.now() + timedelta(minutes=settings.STRIPE_CHECKOUT_HOLD_MINUTES)
+
+
+def release_expired_payment_bookings(now=None):
+    """Release unpaid reservations whose Stripe checkout window has expired."""
+    now = now or timezone.now()
+    fallback_cutoff = now - timedelta(minutes=settings.STRIPE_CHECKOUT_HOLD_MINUTES)
+    checkout_session_ids = []
+    expired_ids = list(
+        Booking.objects
+        .filter(
+            status=Booking.Status.PENDING_PAYMENT,
+        )
+        .filter(
+            Q(payment_expires_at__lte=now) |
+            Q(payment_expires_at__isnull=True, created_at__lte=fallback_cutoff)
+        )
+        .values_list('id', flat=True)[:100]
+    )
+
+    released = 0
+    for booking_id in expired_ids:
+        with transaction.atomic():
+            booking = (
+                Booking.objects
+                .select_for_update()
+                .select_related('slot')
+                .filter(
+                    id=booking_id,
+                    status=Booking.Status.PENDING_PAYMENT,
+                )
+                .filter(
+                    Q(payment_expires_at__lte=now) |
+                    Q(payment_expires_at__isnull=True, created_at__lte=fallback_cutoff)
+                )
+                .first()
+            )
+            if not booking:
+                continue
+
+            booking.status = Booking.Status.CANCELLED
+            booking.cancelled_at = now
+            booking.refund_percent = 0
+            booking.save(update_fields=['status', 'cancelled_at', 'refund_percent', 'updated_at'])
+            booking.slot.is_booked = False
+            booking.slot.save(update_fields=['is_booked'])
+            payment = PaymentRecord.objects.filter(
+                booking=booking,
+                status=PaymentRecord.PaymentStatus.PENDING,
+            ).first()
+            if payment:
+                checkout_session_ids.append(payment.stripe_checkout_session_id)
+                payment.status = PaymentRecord.PaymentStatus.FAILED
+                payment.save(update_fields=['status'])
+            released += 1
+
+    for session_id in checkout_session_ids:
+        _expire_checkout_session(session_id)
+
+    return released
+
+
 def _booking_payment_ready_notification(booking):
     Notification.objects.create(
         user=booking.tutor.user,
@@ -108,7 +181,8 @@ def _cancel_unpaid_booking_from_payment_event(booking):
             return
         booking.status = Booking.Status.CANCELLED
         booking.cancelled_at = timezone.now()
-        booking.save(update_fields=['status', 'cancelled_at', 'updated_at'])
+        booking.refund_percent = 0
+        booking.save(update_fields=['status', 'cancelled_at', 'refund_percent', 'updated_at'])
         booking.slot.is_booked = False
         booking.slot.save(update_fields=['is_booked'])
         try:
@@ -232,13 +306,39 @@ class StripeWebhookView(views.APIView):
             except (Booking.DoesNotExist, PaymentRecord.DoesNotExist):
                 return
 
+            now = timezone.now()
             payment.status = PaymentRecord.PaymentStatus.COMPLETED
             payment.transaction_id = session.get('payment_intent') or session.get('id') or ''
             payment.stripe_payment_intent_id = session.get('payment_intent') or ''
-            payment.paid_at = timezone.now()
+            payment.paid_at = now
             payment.save(update_fields=[
                 'status', 'transaction_id', 'stripe_payment_intent_id', 'paid_at',
             ])
+
+            if booking.status == Booking.Status.CANCELLED:
+                _apply_refund(booking, 100)
+                return
+
+            if (
+                booking.status == Booking.Status.PENDING_PAYMENT and
+                booking.payment_expires_at and
+                booking.payment_expires_at <= now
+            ):
+                booking.status = Booking.Status.CANCELLED
+                booking.cancelled_at = now
+                booking.refund_percent = 100
+                booking.save(update_fields=['status', 'cancelled_at', 'refund_percent', 'updated_at'])
+                booking.slot.is_booked = False
+                booking.slot.save(update_fields=['is_booked'])
+                _apply_refund(booking, 100)
+                Notification.objects.create(
+                    user=booking.student,
+                    notification_type=Notification.NotifType.BOOKING_CANCELLED,
+                    title='Payment window expired',
+                    message='Your payment completed after the reservation window, so it has been refunded.',
+                    link='/bookings',
+                )
+                return
 
             if booking.status == Booking.Status.PENDING_PAYMENT:
                 booking.status = Booking.Status.PENDING
@@ -303,12 +403,16 @@ class AvailabilityListCreateView(generics.ListCreateAPIView):
     serializer_class = AvailabilitySlotSerializer
 
     def get_queryset(self):
+        release_expired_payment_bookings()
         tutor_id = self.kwargs.get('tutor_id')
         today = timezone.localdate()
         if tutor_id:
             # Public endpoint: only show future unbooked slots
             return AvailabilitySlot.objects.filter(
                 tutor__user__id=tutor_id,
+                tutor__verification_status=TutorProfile.VerificationStatus.APPROVED,
+                tutor__stripe_charges_enabled=True,
+                tutor__stripe_payouts_enabled=True,
                 is_booked=False,
                 date__gte=today,
             )
@@ -376,6 +480,7 @@ class BookingCreateView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        release_expired_payment_bookings()
         serializer = BookingCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -398,6 +503,11 @@ class BookingCreateView(views.APIView):
                 if slot.date < timezone.localdate():
                     return Response({'error': 'Cannot book a slot in the past.'}, status=400)
 
+                if not slot.tutor.stripe_ready_for_payments:
+                    return Response({
+                        'error': 'This tutor needs to finish Stripe setup before taking bookings.',
+                    }, status=400)
+
                 booking = Booking.objects.create(
                     student=request.user,
                     tutor=slot.tutor,
@@ -410,6 +520,7 @@ class BookingCreateView(views.APIView):
                     student_note=data.get('student_note', ''),
                     price=slot.tutor.hourly_rate,
                     status=Booking.Status.PENDING_PAYMENT,
+                    payment_expires_at=_payment_hold_expires_at(),
                 )
                 slot.is_booked = True
                 slot.save(update_fields=['is_booked'])
@@ -442,6 +553,7 @@ class BookingListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        release_expired_payment_bookings()
         user = self.request.user
         if user.role == 'student':
             qs = Booking.objects.filter(student=user)
@@ -485,6 +597,40 @@ class BookingDetailView(generics.RetrieveAPIView):
 
     def get_serializer_context(self):
         return {'request': self.request}
+
+
+class BookingCheckoutResumeView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        release_expired_payment_bookings()
+
+        try:
+            booking = Booking.objects.select_related('student').get(id=pk, student=request.user)
+        except Booking.DoesNotExist:
+            return Response({'error': 'Booking not found.'}, status=404)
+
+        if booking.status != Booking.Status.PENDING_PAYMENT:
+            return Response({'error': 'This booking is no longer waiting for payment.'}, status=400)
+
+        if booking.payment_expires_at and booking.payment_expires_at <= timezone.now():
+            release_expired_payment_bookings()
+            return Response({'error': 'This payment window has expired and the slot has been released.'}, status=410)
+
+        try:
+            payment = booking.payment
+        except PaymentRecord.DoesNotExist:
+            return Response({'error': 'No payment session exists for this booking.'}, status=404)
+
+        if payment.status != PaymentRecord.PaymentStatus.PENDING:
+            return Response({'error': 'This payment is no longer pending.'}, status=400)
+        if not payment.stripe_checkout_url:
+            return Response({'error': 'The checkout link is not available. Please book the slot again.'}, status=409)
+
+        return Response({
+            'checkout_url': payment.stripe_checkout_url,
+            'payment_expires_at': booking.payment_expires_at,
+        })
 
 
 class BookingActionView(views.APIView):
@@ -550,8 +696,8 @@ class BookingActionView(views.APIView):
                 user=booking.student,
                 notification_type='booking_cancelled',
                 title='Booking declined',
-                message=(f'{booking.tutor.user.display_name} could not accept this booking — '
-                         f'you will receive a full refund.'
+                message=(f'{booking.tutor.user.display_name} could not accept this booking. '
+                         f'You will receive a full refund.'
                          f'{" Reason: " + reason if reason else ""}'),
                 link='/bookings',
             )
@@ -586,6 +732,39 @@ class BookingActionView(views.APIView):
                 return Response({'error': 'Cannot cancel a completed session.'}, status=400)
             if booking.status == Booking.Status.CANCELLED:
                 return Response({'error': 'Booking is already cancelled.'}, status=400)
+
+            if booking.status == Booking.Status.PENDING_PAYMENT:
+                if not is_student:
+                    return Response({'error': 'Only the student can release an unpaid checkout hold.'}, status=403)
+                checkout_session_id = ''
+                with transaction.atomic():
+                    booking.status = Booking.Status.CANCELLED
+                    booking.cancelled_at = timezone.now()
+                    booking.cancelled_by = user
+                    booking.refund_percent = 0
+                    booking.save(update_fields=[
+                        'status', 'cancelled_at', 'cancelled_by', 'refund_percent', 'updated_at',
+                    ])
+                    booking.slot.is_booked = False
+                    booking.slot.save(update_fields=['is_booked'])
+                    payment = PaymentRecord.objects.filter(
+                        booking=booking,
+                        status=PaymentRecord.PaymentStatus.PENDING,
+                    ).first()
+                    if payment:
+                        checkout_session_id = payment.stripe_checkout_session_id
+                        payment.status = PaymentRecord.PaymentStatus.FAILED
+                        payment.save(update_fields=['status'])
+                _expire_checkout_session(checkout_session_id)
+                Notification.objects.create(
+                    user=booking.tutor.user,
+                    notification_type='booking_cancelled',
+                    title='Payment hold released',
+                    message=(f'{booking.student.display_name} released the unpaid hold for '
+                             f'{booking.slot.date} at {booking.slot.start_time}.'),
+                    link='/bookings',
+                )
+                return Response(BookingSerializer(booking, context={'request': request}).data)
 
             # Tutors declining a booking they haven't yet accepted should use /decline/
             # which always gives a full refund. Cancel is for after-accept cancellations.
@@ -654,6 +833,8 @@ def _apply_refund(booking, percent):
         stripe.Refund.create(
             payment_intent=payment.stripe_payment_intent_id,
             amount=money_to_minor_units(refund_delta),
+            reverse_transfer=True,
+            refund_application_fee=True,
         )
 
     payment.refunded_amount = target_refund_amount

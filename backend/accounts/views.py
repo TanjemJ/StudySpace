@@ -786,7 +786,9 @@ class TutorSearchView(generics.ListAPIView):
 
     def get_queryset(self):
         qs = TutorProfile.objects.filter(
-            verification_status=TutorProfile.VerificationStatus.APPROVED
+            verification_status=TutorProfile.VerificationStatus.APPROVED,
+            stripe_charges_enabled=True,
+            stripe_payouts_enabled=True,
         ).select_related('user')
 
         subject = self.request.query_params.get('subject')
@@ -816,7 +818,11 @@ class TutorSearchView(generics.ListAPIView):
 
         max_rate = (
             TutorProfile.objects
-            .filter(verification_status=TutorProfile.VerificationStatus.APPROVED)
+            .filter(
+                verification_status=TutorProfile.VerificationStatus.APPROVED,
+                stripe_charges_enabled=True,
+                stripe_payouts_enabled=True,
+            )
             .aggregate(max_rate=Max('hourly_rate'))
             .get('max_rate')
         )
@@ -845,7 +851,11 @@ class TutorSearchView(generics.ListAPIView):
 class TutorDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = TutorProfileSerializer
-    queryset = TutorProfile.objects.select_related('user')
+    queryset = TutorProfile.objects.filter(
+        verification_status=TutorProfile.VerificationStatus.APPROVED,
+        stripe_charges_enabled=True,
+        stripe_payouts_enabled=True,
+    ).select_related('user')
     lookup_field = 'user__id'
     lookup_url_kwarg = 'user_id'
 

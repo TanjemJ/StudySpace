@@ -119,12 +119,14 @@ class AdminVerificationActionView(views.APIView):
             profile.verification_status = 'approved'
             profile.rejection_reason = ''
             profile.info_request_message = ''
+            profile.verification_approved_at = timezone.now()
+            profile.stripe_setup_reminder_sent_at = None
             profile.save()
             Notification.objects.create(
                 user=profile.user,
                 notification_type=Notification.NotifType.VERIFICATION_APPROVED,
                 title='Your tutor profile has been approved!',
-                message='You can now receive booking requests from students.',
+                message='Set up Stripe payments from your tutor dashboard to appear in Find a Tutor.',
                 link='/tutor-dashboard',
             )
 

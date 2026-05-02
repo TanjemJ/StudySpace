@@ -1,7 +1,9 @@
+from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 import stripe
 from django.conf import settings
+from django.utils import timezone
 
 from accounts.models import TutorProfile
 
@@ -91,10 +93,16 @@ def create_booking_checkout_session(booking):
         raise StripeConfigurationError('This tutor still needs to connect Stripe before taking paid bookings.')
 
     sync_stripe_account(tutor_profile)
-    if not tutor_profile.stripe_charges_enabled:
+    if not tutor_profile.stripe_ready_for_payments:
         raise StripeConfigurationError('This tutor still needs to finish Stripe onboarding before taking paid bookings.')
 
     payment = booking.payment
+    if not booking.payment_expires_at:
+        booking.payment_expires_at = timezone.now() + timedelta(
+            minutes=settings.STRIPE_CHECKOUT_HOLD_MINUTES,
+        )
+        booking.save(update_fields=['payment_expires_at', 'updated_at'])
+
     platform_fee = calculate_platform_fee(booking.price)
     tutor_payout = (Decimal(booking.price) - platform_fee).quantize(Decimal('0.01'))
     metadata = {
@@ -103,6 +111,7 @@ def create_booking_checkout_session(booking):
         'student_id': str(booking.student_id),
         'tutor_user_id': str(tutor_profile.user_id),
     }
+    stripe_expires_at = timezone.now() + timedelta(minutes=settings.STRIPE_CHECKOUT_SESSION_MINUTES)
 
     session = stripe_client.checkout.Session.create(
         mode='payment',
@@ -111,6 +120,7 @@ def create_booking_checkout_session(booking):
         client_reference_id=str(booking.id),
         success_url=frontend_url(f'/bookings?payment=success&booking={booking.id}'),
         cancel_url=frontend_url(f'/bookings?payment=cancelled&booking={booking.id}'),
+        expires_at=int(stripe_expires_at.timestamp()),
         line_items=[
             {
                 'price_data': {
@@ -136,12 +146,14 @@ def create_booking_checkout_session(booking):
     )
 
     payment.stripe_checkout_session_id = session.id
+    payment.stripe_checkout_url = session.url or ''
     payment.stripe_account_id = tutor_profile.stripe_account_id
     payment.platform_fee_amount = platform_fee
     payment.tutor_payout_amount = tutor_payout
     payment.payment_method = 'stripe'
     payment.save(update_fields=[
         'stripe_checkout_session_id',
+        'stripe_checkout_url',
         'stripe_account_id',
         'platform_fee_amount',
         'tutor_payout_amount',

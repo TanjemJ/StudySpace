@@ -10,6 +10,7 @@ import {
 import {
   RateReview, CheckCircle, Cancel as CancelIcon, HourglassEmpty, SwapHoriz,
   ExpandMore, ExpandLess, VideoCall, Chat as ChatIcon, Person as PersonIcon,
+  Payments,
 } from '@mui/icons-material';
 
 import ChangeRequestCard from '../components/booking/ChangeRequestCard';
@@ -41,6 +42,7 @@ export default function Bookings() {
   const [changeReqTarget, setChangeReqTarget] = useState(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState(null);
+  const [checkoutLoadingId, setCheckoutLoadingId] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewTarget, setReviewTarget] = useState(null);
 
@@ -139,6 +141,25 @@ export default function Bookings() {
       fetchBookings();
     } catch (err) {
       setSnackbar(err.response?.data?.error || 'Failed to accept booking.');
+    }
+  };
+
+  const resumeCheckout = async (booking) => {
+    setCheckoutLoadingId(booking.id);
+    try {
+      const res = await api.post(`/tutoring/bookings/${booking.id}/checkout/`);
+      const url = res.data?.checkout_url || booking.checkout_url;
+      if (!url) {
+        setSnackbar('Checkout link is not available. Please book the slot again.');
+        fetchBookings();
+        return;
+      }
+      window.location.assign(url);
+    } catch (err) {
+      setSnackbar(err.response?.data?.error || 'Unable to reopen checkout.');
+      fetchBookings();
+    } finally {
+      setCheckoutLoadingId('');
     }
   };
 
@@ -321,7 +342,10 @@ export default function Bookings() {
                 )}
                 {!isTutor && b.status === 'pending_payment' && (
                   <Alert severity="warning" icon={<HourglassEmpty />} sx={{ mt: 1.5 }}>
-                    Stripe is confirming your payment. The tutor will receive the request automatically once it clears.
+                    Payment is reserved for this slot while Stripe checkout is open.
+                    {b.payment_expires_at && (
+                      <> Complete payment before {new Date(b.payment_expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} or the slot will be released.</>
+                    )}
                   </Alert>
                 )}
 
@@ -376,6 +400,17 @@ export default function Bookings() {
                         onClick={() => openCancel(b)}
                       >
                         Cancel Booking
+                      </Button>
+                    )}
+                    {!isTutor && b.status === 'pending_payment' && (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={<Payments />}
+                        disabled={checkoutLoadingId === b.id}
+                        onClick={() => resumeCheckout(b)}
+                      >
+                        {checkoutLoadingId === b.id ? 'Opening...' : 'Finish Payment'}
                       </Button>
                     )}
                     {!isTutor && refundTierChip(b)}

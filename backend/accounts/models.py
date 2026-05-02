@@ -230,12 +230,14 @@ class TutorProfile(models.Model):
     rejection_reason = models.TextField(blank=True)
     info_request_message = models.TextField(blank=True)
     verification_submitted_at = models.DateTimeField(null=True, blank=True)
+    verification_approved_at = models.DateTimeField(null=True, blank=True)
 
     # Stripe Connect marketplace onboarding
     stripe_account_id = models.CharField(max_length=255, blank=True)
     stripe_charges_enabled = models.BooleanField(default=False)
     stripe_payouts_enabled = models.BooleanField(default=False)
     stripe_details_submitted = models.BooleanField(default=False)
+    stripe_setup_reminder_sent_at = models.DateTimeField(null=True, blank=True)
 
     # Stats
     average_rating = models.FloatField(default=0.0)
@@ -247,7 +249,11 @@ class TutorProfile(models.Model):
 
     @property
     def stripe_ready_for_payments(self):
-        return bool(self.stripe_account_id and self.stripe_charges_enabled)
+        return bool(
+            self.stripe_account_id and
+            self.stripe_charges_enabled and
+            self.stripe_payouts_enabled
+        )
 
     @property
     def university_verification_active(self):

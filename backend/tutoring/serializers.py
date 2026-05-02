@@ -93,6 +93,7 @@ class BookingSerializer(serializers.ModelSerializer):
     has_review = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
     requires_payment = serializers.SerializerMethodField()
+    checkout_url = serializers.SerializerMethodField()
 
     # Cancellation policy info (computed on the fly)
     hours_until_session = serializers.SerializerMethodField()
@@ -128,6 +129,20 @@ class BookingSerializer(serializers.ModelSerializer):
     def get_requires_payment(self, obj):
         return obj.status == Booking.Status.PENDING_PAYMENT
 
+    def get_checkout_url(self, obj):
+        request = self.context.get('request')
+        if not request or request.user != obj.student:
+            return ''
+        if obj.status != Booking.Status.PENDING_PAYMENT:
+            return ''
+        try:
+            payment = obj.payment
+        except PaymentRecord.DoesNotExist:
+            return ''
+        if payment.status != PaymentRecord.PaymentStatus.PENDING:
+            return ''
+        return payment.stripe_checkout_url or ''
+
     def get_hours_until_session(self, obj):
         from django.utils import timezone
         from datetime import datetime
@@ -147,7 +162,7 @@ class BookingSerializer(serializers.ModelSerializer):
             return {'tier': 'full', 'percent': 100, 'label': 'Full refund'}
         if h > 24:
             return {'tier': 'half', 'percent': 50, 'label': '50% refund'}
-        return {'tier': 'none', 'percent': 0, 'label': 'No refund — booking removed only'}
+        return {'tier': 'none', 'percent': 0, 'label': 'No refund, booking removed only'}
 
 
 class BookingCreateSerializer(serializers.Serializer):

@@ -21,11 +21,15 @@ export default function CancelBookingDialog({
 
   if (!booking) return null;
 
+  const isPendingPayment = booking.status === 'pending_payment';
   const refund = booking.refund_tier || { tier: 'full', percent: 100, label: 'Full refund' };
-  const displayLabel = isTutor ? 'Full refund (tutor cancellation)' : refund.label;
-  const displayPct = isTutor ? 100 : refund.percent;
+  const displayLabel = isPendingPayment
+    ? 'No payment has been taken yet'
+    : isTutor ? 'Full refund (tutor cancellation)' : refund.label;
+  const displayPct = isPendingPayment ? 0 : isTutor ? 100 : refund.percent;
 
-  const severity = displayPct === 100 ? 'success'
+  const severity = isPendingPayment ? 'info'
+                 : displayPct === 100 ? 'success'
                  : displayPct === 50 ? 'warning'
                  : 'error';
 
@@ -60,23 +64,28 @@ export default function CancelBookingDialog({
         <Alert severity={severity} icon={displayPct > 0 ? <CheckCircle /> : <Warning />}>
           <Typography sx={{ fontWeight: 600 }}>
             {displayLabel}
-            {!isTutor && booking.hours_until_session !== null && (
+            {!isPendingPayment && !isTutor && booking.hours_until_session !== null && (
               <> · {booking.hours_until_session.toFixed(1)} hours until session</>
             )}
           </Typography>
-          {!isTutor && (
+          {isPendingPayment && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+              Cancelling now releases the slot immediately because checkout has not been completed.
+            </Typography>
+          )}
+          {!isPendingPayment && !isTutor && (
             <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
               Cancellation policy: full refund more than 72 hours before, 50% refund 24 to 72 hours before, no refund less than 24 hours before.
             </Typography>
           )}
-          {isTutor && (
+          {!isPendingPayment && isTutor && (
             <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
               When a tutor cancels, the student always receives a full refund.
             </Typography>
           )}
         </Alert>
 
-        {displayPct === 0 && (
+        {!isPendingPayment && displayPct === 0 && (
           <Alert severity="error" sx={{ mt: 2 }}>
             You will not receive a refund. The session will be removed from your bookings.
             Consider requesting a change instead if a different date/time would work.
@@ -97,7 +106,7 @@ export default function CancelBookingDialog({
           onClick={submit}
           disabled={submitting}
         >
-          {submitting ? 'Cancelling...' : `Confirm Cancel (${displayPct}% refund)`}
+          {submitting ? 'Cancelling...' : isPendingPayment ? 'Release Slot' : `Confirm Cancel (${displayPct}% refund)`}
         </Button>
       </DialogActions>
     </Dialog>
