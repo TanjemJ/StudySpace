@@ -65,8 +65,25 @@ export default function Bookings() {
 
   useEffect(() => { fetchBookings(); }, [location.key, fetchBookings]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('payment') === 'success') {
+      setSnackbar('Payment received. Your tutor will see the request shortly.');
+      fetchBookings();
+    }
+    if (params.get('payment') === 'cancelled') {
+      setSnackbar('Checkout was cancelled. The slot will be released if payment is not completed.');
+      fetchBookings();
+    }
+  }, [location.search, fetchBookings]);
+
   const filtered = bookings.filter(b => {
-    if (tab === 0) return ['confirmed', 'pending', 'change_requested'].includes(b.status);
+    if (tab === 0) {
+      const activeStatuses = isTutor
+        ? ['confirmed', 'pending', 'change_requested']
+        : ['confirmed', 'pending', 'pending_payment', 'change_requested'];
+      return activeStatuses.includes(b.status);
+    }
     if (tab === 1) return b.status === 'completed';
     if (tab === 2) return b.status === 'cancelled';
     return false;
@@ -154,6 +171,7 @@ export default function Bookings() {
   const statusColor = (s) => {
     if (s === 'confirmed') return 'success';
     if (s === 'pending') return 'warning';
+    if (s === 'pending_payment') return 'warning';
     if (s === 'change_requested') return 'warning';
     if (s === 'completed') return 'info';
     if (s === 'cancelled') return 'default';
@@ -162,6 +180,7 @@ export default function Bookings() {
 
   const statusLabel = (s) => {
     if (s === 'change_requested') return 'Change requested';
+    if (s === 'pending_payment') return 'Payment pending';
     return s;
   };
 
@@ -212,7 +231,9 @@ export default function Bookings() {
           const otherName = isTutor ? b.student_name : b.tutor_name;
           const otherAvatar = isTutor ? b.student_avatar : b.tutor_avatar;
           const canReview = !isTutor && tab === 1 && b.status === 'completed' && !b.has_review;
-          const isActive = ['confirmed', 'pending', 'change_requested'].includes(b.status);
+          const isActive = isTutor
+            ? ['confirmed', 'pending', 'change_requested'].includes(b.status)
+            : ['confirmed', 'pending', 'pending_payment', 'change_requested'].includes(b.status);
           const canEditDocs = isActive;
           const pendingChange = b.pending_change;
           const isExpanded = !!expanded[b.id];
@@ -296,6 +317,11 @@ export default function Bookings() {
                 {!isTutor && b.status === 'pending' && !pendingChange && (
                   <Alert severity="info" icon={<HourglassEmpty />} sx={{ mt: 1.5 }}>
                     Waiting for the tutor to accept this booking.
+                  </Alert>
+                )}
+                {!isTutor && b.status === 'pending_payment' && (
+                  <Alert severity="warning" icon={<HourglassEmpty />} sx={{ mt: 1.5 }}>
+                    Payment is still being confirmed. The tutor will receive the request once Stripe confirms payment.
                   </Alert>
                 )}
 

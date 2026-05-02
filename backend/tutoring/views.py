@@ -1,7 +1,12 @@
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
+import stripe
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics, permissions, status, views
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
@@ -16,6 +21,14 @@ from .serializers import (
     AvailabilitySlotSerializer, BookingSerializer, BookingCreateSerializer,
     ReviewSerializer, ReviewCreateSerializer,
     BookingChangeRequestSerializer, BookingDocumentSerializer,
+)
+from .stripe_services import (
+    StripeConfigurationError,
+    create_booking_checkout_session,
+    create_tutor_account_link,
+    get_tutor_profile_for_account,
+    money_to_minor_units,
+    sync_stripe_account,
 )
 
 
@@ -54,6 +67,212 @@ def _is_tutor_of(user, booking):
 
 def _is_student_of(user, booking):
     return booking.student == user
+
+
+def _remove_unpaid_booking(booking):
+    """Roll back an unpaid booking if checkout cannot be created."""
+    with transaction.atomic():
+        try:
+            booking = Booking.objects.select_for_update().select_related('slot').get(id=booking.id)
+        except Booking.DoesNotExist:
+            return
+        if booking.status != Booking.Status.PENDING_PAYMENT:
+            return
+        slot = booking.slot
+        booking.delete()
+        slot.is_booked = False
+        slot.save(update_fields=['is_booked'])
+
+
+def _booking_payment_ready_notification(booking):
+    Notification.objects.create(
+        user=booking.tutor.user,
+        notification_type=Notification.NotifType.BOOKING_REQUEST,
+        title='New paid booking request',
+        message=(f'{booking.student.display_name} paid for a {booking.subject} session '
+                 f'on {booking.slot.date} at {booking.slot.start_time}.'),
+        link='/tutor-dashboard',
+    )
+
+
+def _cancel_unpaid_booking_from_payment_event(booking):
+    with transaction.atomic():
+        booking = Booking.objects.select_for_update().select_related('slot').get(id=booking.id)
+        if booking.status != Booking.Status.PENDING_PAYMENT:
+            return
+        booking.status = Booking.Status.CANCELLED
+        booking.cancelled_at = timezone.now()
+        booking.save(update_fields=['status', 'cancelled_at', 'updated_at'])
+        booking.slot.is_booked = False
+        booking.slot.save(update_fields=['is_booked'])
+        try:
+            payment = booking.payment
+            payment.status = PaymentRecord.PaymentStatus.FAILED
+            payment.save(update_fields=['status'])
+        except PaymentRecord.DoesNotExist:
+            pass
+
+
+# --------------------------------------------------------------------------
+# Stripe
+# --------------------------------------------------------------------------
+
+
+class StripeConnectStatusView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != 'tutor' or not hasattr(request.user, 'tutor_profile'):
+            return Response({'error': 'Only tutors can view Stripe onboarding.'}, status=403)
+
+        profile = request.user.tutor_profile
+        if profile.stripe_account_id and settings.STRIPE_SECRET_KEY:
+            try:
+                sync_stripe_account(profile)
+            except stripe.error.StripeError:
+                pass
+
+        return Response({
+            'configured': bool(settings.STRIPE_SECRET_KEY),
+            'account_id': profile.stripe_account_id,
+            'charges_enabled': profile.stripe_charges_enabled,
+            'payouts_enabled': profile.stripe_payouts_enabled,
+            'details_submitted': profile.stripe_details_submitted,
+            'ready_for_payments': profile.stripe_ready_for_payments,
+        })
+
+
+class StripeConnectOnboardingView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role != 'tutor' or not hasattr(request.user, 'tutor_profile'):
+            return Response({'error': 'Only tutors can connect Stripe.'}, status=403)
+
+        profile = request.user.tutor_profile
+        if profile.verification_status != profile.VerificationStatus.APPROVED:
+            return Response({'error': 'Your tutor profile must be approved before connecting Stripe.'}, status=400)
+
+        try:
+            link = create_tutor_account_link(profile)
+        except StripeConfigurationError as exc:
+            return Response({'error': str(exc)}, status=503)
+        except stripe.error.StripeError as exc:
+            return Response({'error': getattr(exc, 'user_message', None) or str(exc)}, status=502)
+
+        return Response({'url': link.url})
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class StripeWebhookView(views.APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        payload = request.body
+        signature = request.META.get('HTTP_STRIPE_SIGNATURE', '')
+
+        try:
+            if settings.STRIPE_WEBHOOK_SECRET:
+                event = stripe.Webhook.construct_event(
+                    payload, signature, settings.STRIPE_WEBHOOK_SECRET,
+                )
+            else:
+                event = json.loads(payload.decode('utf-8'))
+        except (ValueError, stripe.error.SignatureVerificationError):
+            return Response({'error': 'Invalid Stripe webhook payload.'}, status=400)
+
+        event_type = event.get('type')
+        data_object = event.get('data', {}).get('object', {})
+
+        if event_type == 'checkout.session.completed':
+            self._handle_checkout_completed(data_object)
+        elif event_type == 'checkout.session.expired':
+            self._handle_checkout_expired(data_object)
+        elif event_type == 'payment_intent.payment_failed':
+            self._handle_payment_failed(data_object)
+        elif event_type == 'charge.refunded':
+            self._handle_charge_refunded(data_object)
+        elif event_type == 'account.updated':
+            self._handle_account_updated(data_object)
+
+        return Response({'received': True})
+
+    def _handle_checkout_completed(self, session):
+        booking_id = (session.get('metadata') or {}).get('booking_id') or session.get('client_reference_id')
+        if not booking_id:
+            return
+
+        with transaction.atomic():
+            try:
+                booking = Booking.objects.select_for_update().select_related(
+                    'student', 'tutor__user', 'slot',
+                ).get(id=booking_id)
+                payment = PaymentRecord.objects.select_for_update().get(booking=booking)
+            except (Booking.DoesNotExist, PaymentRecord.DoesNotExist):
+                return
+
+            payment.status = PaymentRecord.PaymentStatus.COMPLETED
+            payment.transaction_id = session.get('payment_intent') or session.get('id') or ''
+            payment.stripe_payment_intent_id = session.get('payment_intent') or ''
+            payment.paid_at = timezone.now()
+            payment.save(update_fields=[
+                'status', 'transaction_id', 'stripe_payment_intent_id', 'paid_at',
+            ])
+
+            if booking.status == Booking.Status.PENDING_PAYMENT:
+                booking.status = Booking.Status.PENDING
+                booking.save(update_fields=['status', 'updated_at'])
+                _booking_payment_ready_notification(booking)
+
+    def _handle_checkout_expired(self, session):
+        booking_id = (session.get('metadata') or {}).get('booking_id') or session.get('client_reference_id')
+        if not booking_id:
+            return
+        try:
+            booking = Booking.objects.get(id=booking_id)
+        except Booking.DoesNotExist:
+            return
+        _cancel_unpaid_booking_from_payment_event(booking)
+
+    def _handle_payment_failed(self, intent):
+        booking_id = (intent.get('metadata') or {}).get('booking_id')
+        if not booking_id:
+            return
+        try:
+            booking = Booking.objects.get(id=booking_id)
+        except Booking.DoesNotExist:
+            return
+        _cancel_unpaid_booking_from_payment_event(booking)
+
+    def _handle_charge_refunded(self, charge):
+        payment_intent = charge.get('payment_intent')
+        if not payment_intent:
+            return
+        payment = PaymentRecord.objects.filter(stripe_payment_intent_id=payment_intent).first()
+        if not payment:
+            return
+        amount_refunded = Decimal(charge.get('amount_refunded', 0)) / Decimal('100')
+        payment.refunded_amount = amount_refunded.quantize(Decimal('0.01'))
+        payment.status = (
+            PaymentRecord.PaymentStatus.REFUNDED
+            if payment.refunded_amount >= payment.amount
+            else PaymentRecord.PaymentStatus.PARTIALLY_REFUNDED
+        )
+        payment.save(update_fields=['refunded_amount', 'status'])
+
+    def _handle_account_updated(self, account):
+        profile = get_tutor_profile_for_account(account.get('id'))
+        if not profile:
+            return
+        profile.stripe_charges_enabled = bool(account.get('charges_enabled'))
+        profile.stripe_payouts_enabled = bool(account.get('payouts_enabled'))
+        profile.stripe_details_submitted = bool(account.get('details_submitted'))
+        profile.save(update_fields=[
+            'stripe_charges_enabled',
+            'stripe_payouts_enabled',
+            'stripe_details_submitted',
+        ])
 
 
 # --------------------------------------------------------------------------
@@ -170,7 +389,7 @@ class BookingCreateView(views.APIView):
                     location_suggestion=data.get('location_suggestion', ''),
                     student_note=data.get('student_note', ''),
                     price=slot.tutor.hourly_rate,
-                    status=Booking.Status.PENDING,
+                    status=Booking.Status.PENDING_PAYMENT,
                 )
                 slot.is_booked = True
                 slot.save(update_fields=['is_booked'])
@@ -178,22 +397,24 @@ class BookingCreateView(views.APIView):
                 PaymentRecord.objects.create(
                     booking=booking,
                     amount=booking.price,
-                    payment_method='pending',
+                    payment_method='stripe',
                     status=PaymentRecord.PaymentStatus.PENDING,
-                )
-
-                Notification.objects.create(
-                    user=slot.tutor.user,
-                    notification_type=Notification.NotifType.BOOKING_REQUEST,
-                    title='New booking request',
-                    message=(f'{request.user.display_name} requested a {data["subject"]} session '
-                             f'on {slot.date} at {slot.start_time}.'),
-                    link='/tutor-dashboard',
                 )
         except IntegrityError:
             return Response({'error': 'This slot is no longer available.'}, status=409)
 
-        return Response(BookingSerializer(booking, context={'request': request}).data, status=201)
+        try:
+            checkout_session = create_booking_checkout_session(booking)
+        except StripeConfigurationError as exc:
+            _remove_unpaid_booking(booking)
+            return Response({'error': str(exc)}, status=400)
+        except stripe.error.StripeError as exc:
+            _remove_unpaid_booking(booking)
+            return Response({'error': getattr(exc, 'user_message', None) or str(exc)}, status=502)
+
+        payload = BookingSerializer(booking, context={'request': request}).data
+        payload['checkout_url'] = checkout_session.url
+        return Response(payload, status=201)
 
 
 class BookingListView(generics.ListAPIView):
@@ -386,7 +607,7 @@ class BookingActionView(views.APIView):
 
 
 def _apply_refund(booking, percent):
-    """Record the refund against the payment."""
+    """Create and record a Stripe refund against the payment."""
     try:
         payment = booking.payment
     except PaymentRecord.DoesNotExist:
@@ -396,15 +617,31 @@ def _apply_refund(booking, percent):
         PaymentRecord.PaymentStatus.PARTIALLY_REFUNDED,
     }:
         return
-    if percent >= 100:
-        payment.refunded_amount = payment.amount
-        payment.status = PaymentRecord.PaymentStatus.REFUNDED
-    elif percent > 0:
-        payment.refunded_amount = (payment.amount * Decimal(percent) / Decimal(100)).quantize(Decimal('0.01'))
-        payment.status = PaymentRecord.PaymentStatus.PARTIALLY_REFUNDED
-    else:
+
+    if percent <= 0:
         payment.refunded_amount = Decimal(0)
-    payment.save()
+        payment.save(update_fields=['refunded_amount'])
+        return
+
+    if percent >= 100:
+        target_refund_amount = payment.amount
+    else:
+        target_refund_amount = (payment.amount * Decimal(percent) / Decimal(100)).quantize(Decimal('0.01'))
+
+    refund_delta = target_refund_amount - payment.refunded_amount
+    if refund_delta > 0 and payment.stripe_payment_intent_id and settings.STRIPE_SECRET_KEY:
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        stripe.Refund.create(
+            payment_intent=payment.stripe_payment_intent_id,
+            amount=money_to_minor_units(refund_delta),
+        )
+
+    payment.refunded_amount = target_refund_amount
+    if percent >= 100:
+        payment.status = PaymentRecord.PaymentStatus.REFUNDED
+    else:
+        payment.status = PaymentRecord.PaymentStatus.PARTIALLY_REFUNDED
+    payment.save(update_fields=['refunded_amount', 'status'])
 
 
 # --------------------------------------------------------------------------

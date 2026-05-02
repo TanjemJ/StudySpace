@@ -231,6 +231,12 @@ class TutorProfile(models.Model):
     info_request_message = models.TextField(blank=True)
     verification_submitted_at = models.DateTimeField(null=True, blank=True)
 
+    # Stripe Connect marketplace onboarding
+    stripe_account_id = models.CharField(max_length=255, blank=True)
+    stripe_charges_enabled = models.BooleanField(default=False)
+    stripe_payouts_enabled = models.BooleanField(default=False)
+    stripe_details_submitted = models.BooleanField(default=False)
+
     # Stats
     average_rating = models.FloatField(default=0.0)
     total_sessions = models.IntegerField(default=0)
@@ -238,6 +244,10 @@ class TutorProfile(models.Model):
 
     def __str__(self):
         return f"Tutor: {self.user.display_name} ({self.verification_status})"
+
+    @property
+    def stripe_ready_for_payments(self):
+        return bool(self.stripe_account_id and self.stripe_charges_enabled)
 
     @property
     def university_verification_active(self):

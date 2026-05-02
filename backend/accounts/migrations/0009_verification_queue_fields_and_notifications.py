@@ -36,6 +36,26 @@ class Migration(migrations.Migration):
             name='verification_submitted_at',
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name='tutorprofile',
+            name='stripe_account_id',
+            field=models.CharField(blank=True, max_length=255),
+        ),
+        migrations.AddField(
+            model_name='tutorprofile',
+            name='stripe_charges_enabled',
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name='tutorprofile',
+            name='stripe_payouts_enabled',
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name='tutorprofile',
+            name='stripe_details_submitted',
+            field=models.BooleanField(default=False),
+        ),
         migrations.AlterField(
             model_name='notification',
             name='notification_type',

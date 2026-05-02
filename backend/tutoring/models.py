@@ -26,6 +26,7 @@ class Booking(models.Model):
     """A booking between a student and a tutor."""
 
     class Status(models.TextChoices):
+        PENDING_PAYMENT = 'pending_payment', 'Pending Payment'
         PENDING = 'pending', 'Pending'
         CONFIRMED = 'confirmed', 'Confirmed'
         CHANGE_REQUESTED = 'change_requested', 'Change Requested'
@@ -173,8 +174,14 @@ class PaymentRecord(models.Model):
     currency = models.CharField(max_length=3, default='GBP')
     payment_method = models.CharField(max_length=20, default='stripe')
     transaction_id = models.CharField(max_length=200, blank=True)
+    stripe_checkout_session_id = models.CharField(max_length=255, blank=True, db_index=True)
+    stripe_payment_intent_id = models.CharField(max_length=255, blank=True, db_index=True)
+    stripe_account_id = models.CharField(max_length=255, blank=True)
+    platform_fee_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    tutor_payout_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING)
     refunded_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    paid_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

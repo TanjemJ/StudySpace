@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from datetime import timedelta
+from decimal import Decimal
 from dotenv import load_dotenv
 
 
@@ -274,3 +275,10 @@ MICROSOFT_ALLOWED_TENANT_IDS = [
     for tenant in os.environ.get('MICROSOFT_ALLOWED_TENANT_IDS', '').split(',')
     if tenant.strip()
 ]
+
+# Stripe payments (test mode while the project is being demonstrated)
+FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:5173').rstrip('/')
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
+STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'GBP').lower()
+STRIPE_PLATFORM_FEE_PERCENT = Decimal(os.environ.get('STRIPE_PLATFORM_FEE_PERCENT', '10'))

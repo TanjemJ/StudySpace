@@ -10,7 +10,7 @@ import {
 import {
   CheckCircle, Cancel, SwapHoriz, AccessTime, Payments, Star, VideoCall,
   Chat as ChatIcon, Person as PersonIcon, CalendarMonth, Schedule,
-  HourglassEmpty, AttachFile, EditNote,
+  HourglassEmpty, AttachFile, EditNote, OpenInNew,
 } from '@mui/icons-material';
 
 import ChangeRequestDialog from '../components/booking/ChangeRequestDialog';
@@ -42,15 +42,44 @@ export default function TutorDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [snackbar, setSnackbar] = useState('');
+  const [stripeStatus, setStripeStatus] = useState(null);
+  const [stripeLoading, setStripeLoading] = useState(false);
 
   const fetchData = useCallback(() => {
     Promise.all([
       api.get('/tutoring/bookings/').then(r => setBookings(r.data.results || r.data || [])).catch(() => {}),
       api.get('/auth/dashboard-stats/tutor/').then(r => setStats(r.data)).catch(() => {}),
+      api.get('/tutoring/payments/stripe/connect/status/')
+        .then(r => setStripeStatus(r.data))
+        .catch(() => setStripeStatus(null)),
     ]);
   }, []);
 
   useEffect(() => { fetchData(); }, [location.key, fetchData]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('stripe') === 'return') {
+      setSnackbar('Stripe onboarding saved. Payment status is refreshing.');
+      fetchData();
+    }
+    if (params.get('stripe') === 'refresh') {
+      setSnackbar('Stripe needs a little more information before you can receive bookings.');
+      fetchData();
+    }
+  }, [location.search, fetchData]);
+
+  const startStripeOnboarding = async () => {
+    setStripeLoading(true);
+    setError('');
+    try {
+      const res = await api.post('/tutoring/payments/stripe/connect/onboarding/');
+      window.location.assign(res.data.url);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not start Stripe onboarding.');
+      setStripeLoading(false);
+    }
+  };
 
   const pending = bookings.filter(b => b.status === 'pending' && !b.pending_change);
   const withPendingChange = bookings.filter(b => b.pending_change);
@@ -169,6 +198,35 @@ export default function TutorDashboard() {
       {user?.tutor_profile?.verification_status === 'approved' && (
         <Alert severity="success" icon={<CheckCircle />} sx={{ mb: 3 }}>
           Your tutor profile is <strong>approved and live</strong>.
+        </Alert>
+      )}
+      {user?.tutor_profile?.verification_status === 'approved' && stripeStatus && !stripeStatus.ready_for_payments && (
+        <Alert
+          severity={stripeStatus.configured ? 'warning' : 'error'}
+          sx={{ mb: 3 }}
+          action={
+            stripeStatus.configured ? (
+              <Button
+                color="inherit"
+                size="small"
+                endIcon={<OpenInNew />}
+                onClick={startStripeOnboarding}
+                disabled={stripeLoading}
+              >
+                {stripeLoading ? 'Opening...' : 'Connect Stripe'}
+              </Button>
+            ) : null
+          }
+        >
+          <strong>Payment setup needed:</strong>{' '}
+          {stripeStatus.configured
+            ? 'Connect Stripe before students can pay for your sessions.'
+            : 'Stripe is not configured on the backend yet.'}
+        </Alert>
+      )}
+      {user?.tutor_profile?.verification_status === 'approved' && stripeStatus?.ready_for_payments && (
+        <Alert severity="success" sx={{ mb: 3 }}>
+          Stripe is connected. Students can pay for bookings with this tutor profile.
         </Alert>
       )}
       {user?.tutor_profile?.verification_status === 'pending' && (

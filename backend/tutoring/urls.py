@@ -9,6 +9,14 @@ urlpatterns = [
     path('availability/<uuid:pk>/delete/', views.AvailabilityDeleteView.as_view(),
          name='delete-availability'),
 
+    # Stripe payments
+    path('payments/stripe/connect/status/', views.StripeConnectStatusView.as_view(),
+         name='stripe-connect-status'),
+    path('payments/stripe/connect/onboarding/', views.StripeConnectOnboardingView.as_view(),
+         name='stripe-connect-onboarding'),
+    path('payments/stripe/webhook/', views.StripeWebhookView.as_view(),
+         name='stripe-webhook'),
+
     # Bookings
     path('bookings/', views.BookingListView.as_view(), name='booking-list'),
     path('bookings/create/', views.BookingCreateView.as_view(), name='booking-create'),

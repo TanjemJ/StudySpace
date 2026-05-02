@@ -91,6 +91,8 @@ class BookingSerializer(serializers.ModelSerializer):
     documents = BookingDocumentSerializer(many=True, read_only=True)
     pending_change = serializers.SerializerMethodField()
     has_review = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
+    requires_payment = serializers.SerializerMethodField()
 
     # Cancellation policy info (computed on the fly)
     hours_until_session = serializers.SerializerMethodField()
@@ -116,6 +118,15 @@ class BookingSerializer(serializers.ModelSerializer):
 
     def get_has_review(self, obj):
         return hasattr(obj, 'review')
+
+    def get_payment_status(self, obj):
+        try:
+            return obj.payment.status
+        except PaymentRecord.DoesNotExist:
+            return None
+
+    def get_requires_payment(self, obj):
+        return obj.status == Booking.Status.PENDING_PAYMENT
 
     def get_hours_until_session(self, obj):
         from django.utils import timezone

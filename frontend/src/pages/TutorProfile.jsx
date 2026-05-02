@@ -136,7 +136,7 @@ export default function TutorProfile() {
   };
 
 
-  // Two-phase submit: create booking first, then upload each attached doc to it.
+  // Two-phase submit: reserve the slot, upload optional files, then send the student to Stripe.
   const handleBook = async () => {
     if (!selectedSlot || !subject) {
       setBookingError('Please select a time slot and subject.');
@@ -159,7 +159,8 @@ export default function TutorProfile() {
       }
 
       const res = await api.post('/tutoring/bookings/create/', payload);
-      const bookingId = res.data?.id;
+      const bookingId = res.data?.id || res.data?.booking?.id;
+      const checkoutUrl = res.data?.checkout_url;
 
       // Upload attached documents (best-effort — booking already exists).
       // If any individual upload fails, we still treat the booking as created
@@ -182,9 +183,15 @@ export default function TutorProfile() {
 
       if (failedNames.length > 0) {
         setBookingError(
-          `Booking confirmed, but these files failed to upload: ${failedNames.join(', ')}. ` +
-          `You can re-attach them from the Bookings page.`,
+          `The booking was reserved, but these files failed to upload: ${failedNames.join(', ')}. ` +
+          `You can re-attach them from the Bookings page after checkout.`,
         );
+      }
+      if (checkoutUrl) {
+        setBookingSuccess(true);
+        setBookingStep(2);
+        window.location.assign(checkoutUrl);
+        return;
       }
       setBookingSuccess(true);
       setBookingStep(2);
@@ -610,10 +617,10 @@ export default function TutorProfile() {
           {bookingStep === 2 && bookingSuccess && (
             <Box sx={{ textAlign: 'center', py: 3 }}>
               <CheckCircle sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
-              <Typography variant="h3" sx={{ mb: 1 }}>Session Booked!</Typography>
+              <Typography variant="h3" sx={{ mb: 1 }}>Secure Checkout</Typography>
               <Typography color="text.secondary" sx={{ mb: 3 }}>
-                Your session with {tutor.user?.first_name} has been requested.
-                You'll find it in your dashboard once {tutor.user?.first_name} accepts.
+                Your session with {tutor.user?.first_name} has been reserved.
+                You'll be taken to Stripe to finish payment.
               </Typography>
               <Stack direction="row" spacing={2} justifyContent="center">
                 <Button variant="contained" onClick={() => navigate('/bookings')}>
@@ -646,7 +653,7 @@ export default function TutorProfile() {
                 variant="contained" onClick={handleBook}
                 disabled={bookingLoading || !subject}
               >
-                {bookingLoading ? 'Booking...' : `Confirm & Pay £${tutor.hourly_rate}`}
+                {bookingLoading ? 'Preparing checkout...' : `Continue to Payment £${tutor.hourly_rate}`}
               </Button>
             )}
           </DialogActions>
