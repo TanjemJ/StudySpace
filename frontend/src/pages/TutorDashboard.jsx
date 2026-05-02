@@ -41,6 +41,7 @@ export default function TutorDashboard() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [pageError, setPageError] = useState('');
   const [snackbar, setSnackbar] = useState('');
   const [stripeStatus, setStripeStatus] = useState(null);
   const [stripeLoading, setStripeLoading] = useState(false);
@@ -71,12 +72,17 @@ export default function TutorDashboard() {
 
   const startStripeOnboarding = async () => {
     setStripeLoading(true);
-    setError('');
+    setPageError('');
     try {
       const res = await api.post('/tutoring/payments/stripe/connect/onboarding/');
+      if (!res.data?.url) {
+        setPageError('Stripe did not return an onboarding link. Please try again.');
+        setStripeLoading(false);
+        return;
+      }
       window.location.assign(res.data.url);
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not start Stripe onboarding.');
+      setPageError(err.response?.data?.error || 'Could not start Stripe onboarding. Please try again in a moment.');
       setStripeLoading(false);
     }
   };
@@ -198,6 +204,11 @@ export default function TutorDashboard() {
       {user?.tutor_profile?.verification_status === 'approved' && (
         <Alert severity="success" icon={<CheckCircle />} sx={{ mb: 3 }}>
           Your tutor profile is <strong>approved and live</strong>.
+        </Alert>
+      )}
+      {pageError && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setPageError('')}>
+          {pageError}
         </Alert>
       )}
       {user?.tutor_profile?.verification_status === 'approved' && stripeStatus && !stripeStatus.ready_for_payments && (

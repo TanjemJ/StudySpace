@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 import stripe
@@ -30,6 +31,11 @@ from .stripe_services import (
     money_to_minor_units,
     sync_stripe_account,
 )
+
+
+logger = logging.getLogger(__name__)
+STRIPE_ERROR = getattr(getattr(stripe, 'error', None), 'StripeError', Exception)
+STRIPE_SIGNATURE_ERROR = getattr(getattr(stripe, 'error', None), 'SignatureVerificationError', ValueError)
 
 
 # --------------------------------------------------------------------------
@@ -129,8 +135,12 @@ class StripeConnectStatusView(views.APIView):
         if profile.stripe_account_id and settings.STRIPE_SECRET_KEY:
             try:
                 sync_stripe_account(profile)
-            except stripe.error.StripeError:
-                pass
+            except STRIPE_ERROR:
+                logger.warning(
+                    'Unable to refresh Stripe account status for tutor profile %s.',
+                    profile.id,
+                    exc_info=True,
+                )
 
         return Response({
             'configured': bool(settings.STRIPE_SECRET_KEY),
@@ -157,8 +167,18 @@ class StripeConnectOnboardingView(views.APIView):
             link = create_tutor_account_link(profile)
         except StripeConfigurationError as exc:
             return Response({'error': str(exc)}, status=503)
-        except stripe.error.StripeError as exc:
+        except STRIPE_ERROR as exc:
+            logger.warning(
+                'Stripe onboarding failed for tutor profile %s.',
+                profile.id,
+                exc_info=True,
+            )
             return Response({'error': getattr(exc, 'user_message', None) or str(exc)}, status=502)
+        except Exception:
+            logger.exception('Unexpected Stripe onboarding failure for tutor profile %s.', profile.id)
+            return Response({
+                'error': 'Stripe onboarding could not be started. Check Cloud Run logs for details.',
+            }, status=502)
 
         return Response({'url': link.url})
 
@@ -179,7 +199,7 @@ class StripeWebhookView(views.APIView):
                 )
             else:
                 event = json.loads(payload.decode('utf-8'))
-        except (ValueError, stripe.error.SignatureVerificationError):
+        except (ValueError, STRIPE_SIGNATURE_ERROR):
             return Response({'error': 'Invalid Stripe webhook payload.'}, status=400)
 
         event_type = event.get('type')
@@ -408,7 +428,7 @@ class BookingCreateView(views.APIView):
         except StripeConfigurationError as exc:
             _remove_unpaid_booking(booking)
             return Response({'error': str(exc)}, status=400)
-        except stripe.error.StripeError as exc:
+        except STRIPE_ERROR as exc:
             _remove_unpaid_booking(booking)
             return Response({'error': getattr(exc, 'user_message', None) or str(exc)}, status=502)
 
