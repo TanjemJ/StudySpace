@@ -16,16 +16,26 @@ export default function CreatePost() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [anonymous, setAnonymous] = useState(false);
+  const [universityOnly, setUniversityOnly] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [tags, setTags] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const userUniversity = user?.student_profile?.university || '';
+  const profileUniversity = user?.student_profile?.university || user?.tutor_profile?.university || '';
+  const isUniVerified = Boolean(
+    user?.student_profile?.university_verification_active ||
+    user?.tutor_profile?.university_verification_active
+  );
+  const userUniversity = isUniVerified ? profileUniversity : '';
 
   useEffect(() => {
     api.get('/forum/categories/').then(r => setCategories(r.data.results || r.data || []));
   }, []);
+
+  const selectedCategory = categories.find(c => c.id === catId);
+  const isUniversityCategory = Boolean(selectedCategory?.university || selectedCategory?.is_university_only);
+  const canChooseUniversityOnly = Boolean(userUniversity);
 
   const addTag = () => {
     const tag = tagInput.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -52,6 +62,7 @@ export default function CreatePost() {
         title: title.trim(),
         content: content.trim(),
         is_anonymous: anonymous,
+        university_only: isUniversityCategory || universityOnly,
         tags,
       });
       if (res.data.message && res.data.message.includes('review')) {
@@ -66,8 +77,6 @@ export default function CreatePost() {
       setLoading(false);
     }
   };
-
-  const selectedCategory = categories.find(c => c.id === catId);
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '80vh' }}>
@@ -107,7 +116,7 @@ export default function CreatePost() {
             </TextField>
 
             {/* University-only warning */}
-            {selectedCategory?.is_university_only && selectedCategory?.university !== userUniversity && (
+            {isUniversityCategory && selectedCategory?.university && selectedCategory.university !== userUniversity && (
               <Alert severity="warning" sx={{ mb: 2 }}>
                 This category is restricted to {selectedCategory.university} students. You may not be able to post here without verification.
               </Alert>
@@ -163,6 +172,29 @@ export default function CreatePost() {
             <Divider sx={{ my: 2 }} />
 
             {/* Options */}
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={isUniversityCategory || universityOnly}
+                  onChange={(e) => setUniversityOnly(e.target.checked)}
+                  disabled={isUniversityCategory || !canChooseUniversityOnly}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2">Post only to my university forum</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {isUniversityCategory
+                      ? 'This selected category is already restricted to a university forum.'
+                      : canChooseUniversityOnly
+                        ? `Only users verified with ${userUniversity} will see this post. Leave unticked for the general forum.`
+                        : 'Verify your university email to use university-only posting.'}
+                  </Typography>
+                </Box>
+              }
+              sx={{ mb: 1, alignItems: 'flex-start' }}
+            />
+
             <FormControlLabel
               control={<Checkbox checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />}
               label={

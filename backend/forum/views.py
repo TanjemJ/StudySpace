@@ -9,6 +9,14 @@ from .serializers import ForumCategorySerializer, ForumPostSerializer, ForumRepl
 FLAGGED_KEYWORDS = ['hate', 'kill', 'threat', 'abuse', 'harass', 'racist', 'sexist']
 
 
+def _is_truthy(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ('true', '1', 'yes', 'on')
+    return bool(value)
+
+
 def _get_user_university(user):
     if not user or not user.is_authenticated:
         return ''
@@ -194,13 +202,38 @@ class PostCreateView(views.APIView):
         except ForumCategory.DoesNotExist:
             return Response({'error': 'Category not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        if category.is_university_only and category.university:
-            user_uni = _get_user_university(request.user)
-            if user_uni != category.university:
+        user_university = _get_user_university(request.user)
+        university_only = _is_truthy(data.get('university_only', False))
+        category_university = category.university or ''
+        post_university = ''
+
+        if category_university:
+            if user_university != category_university:
                 return Response(
                     {'error': 'You must be a verified member of this university to post here.'},
                     status=status.HTTP_403_FORBIDDEN
                 )
+            post_university = category_university
+        elif category.is_university_only:
+            required_university = user_university
+            if not required_university:
+                return Response(
+                    {'error': 'Verify your university email before posting to a university forum.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            if user_university != required_university:
+                return Response(
+                    {'error': 'You must be a verified member of this university to post here.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            post_university = required_university
+        elif university_only:
+            if not user_university:
+                return Response(
+                    {'error': 'Verify your university email before posting to your university forum.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            post_university = user_university
 
         text = (title + ' ' + content).lower()
         is_flagged = any(kw in text for kw in FLAGGED_KEYWORDS)
@@ -209,12 +242,10 @@ class PostCreateView(views.APIView):
             matched = [kw for kw in FLAGGED_KEYWORDS if kw in text]
             flag_reason = f'Auto-flagged: keywords "{", ".join(matched)}"'
 
-        user_university = _get_user_university(request.user)
-
         post = ForumPost.objects.create(
             author=request.user, category=category,
             title=title, content=content,
-            university=category.university or user_university,
+            university=post_university,
             is_anonymous=data.get('is_anonymous', False),
             tags=data.get('tags', []) if isinstance(data.get('tags', []), list) else [],
             is_flagged=is_flagged, flag_reason=flag_reason,
