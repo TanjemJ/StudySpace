@@ -166,3 +166,4 @@ class AdminVerificationActionView(views.APIView):
             'message': f'Action "{action}" completed.',
             'verification_status': profile.verification_status,
         })
+

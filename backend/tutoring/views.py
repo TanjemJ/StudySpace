@@ -635,8 +635,6 @@ class BookingCheckoutResumeView(views.APIView):
 
 class BookingActionView(views.APIView):
     """
-    Mutate a booking's status.
-
     Actions:
         accept (tutor only, pending -> confirmed)
         decline (tutor only, pending -> cancelled)

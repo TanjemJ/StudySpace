@@ -1,29 +1,4 @@
-/**
- * AccessibilityProvider
- *
- * Reads the current user's accessibility prefs (text_size, high_contrast,
- * reduced_motion, underline_links, dyslexia_font, focus_ring_boost) and:
- *
- *   1. Exposes them via `useAccessibility()` so children can react to changes
- *      (e.g. Settings.jsx for live preview).
- *   2. Applies body-level CSS classes so stylesheet rules can target them
- *      (`.ss-high-contrast`, `.ss-reduced-motion`, `.ss-underline-links`,
- *       `.ss-dyslexia-font`, `.ss-focus-boost`).
- *   3. Builds a scaled MUI theme based on text_size and provides it via
- *      ThemeProvider. The scale factor multiplies all typography sizes so
- *      headings, body text, inputs, buttons all grow proportionally.
- *
- * Usage in main.jsx:
- *   <AuthProvider>
- *     <AccessibilityProvider>
- *       <App />
- *     </AccessibilityProvider>
- *   </AuthProvider>
- *
- * Anywhere (e.g. Settings for live preview before save):
- *   const { textSize, setPreview } = useAccessibility();
- *   setPreview({ textSize: 'large' });
- */
+
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';

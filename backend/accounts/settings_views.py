@@ -359,16 +359,12 @@ class UploadAvatarView(views.APIView):
 
 
 class UpdateAccessibilityView(views.APIView):
-    """Update accessibility preferences — available to ALL user roles."""
     permission_classes = [permissions.IsAuthenticated]
 
-    # Fields a client is allowed to write. Any other key in request.data
-    # is silently ignored so no one can smuggle writes to arbitrary User fields.
     ALLOWED_FIELDS = {
         'text_size',
         'high_contrast',
         'reduced_motion',
-        # NEW — added 2026-04-24
         'underline_links',
         'dyslexia_font',
         'focus_ring_boost',

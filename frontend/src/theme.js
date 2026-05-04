@@ -1,7 +1,6 @@
 import { createTheme } from '@mui/material/styles';
 
-// Scale factors for each text_size preference. These multiply every typography
-// size so headings, body, inputs, buttons all grow proportionally.
+
 export const TEXT_SIZE_SCALES = {
   small: 0.9,
   medium: 1.0,
@@ -9,9 +8,7 @@ export const TEXT_SIZE_SCALES = {
   xl: 1.25,
 };
 
-// Accessibility stylesheet — injected as a global override via the theme.
-// Gets applied automatically when body classes (set by AccessibilityProvider)
-// toggle on.
+
 const accessibilityStyles = `
   /* Underline all links */
   body.ss-underline-links a,

@@ -23,7 +23,6 @@ class AvailabilitySlot(models.Model):
 
 
 class Booking(models.Model):
-    """A booking between a student and a tutor."""
 
     class Status(models.TextChoices):
         PENDING_PAYMENT = 'pending_payment', 'Pending Payment'
@@ -36,9 +35,6 @@ class Booking(models.Model):
     class SessionType(models.TextChoices):
         VIDEO = 'video', 'Video Call'
         IN_PERSON = 'in_person', 'In Person'
-        # 'chat' is kept ONLY so legacy bookings keep validating; the UI
-        # labels existing chat bookings as "Other" and removes the option
-        # from new flows. Don't expose it to new bookings.
         CHAT = 'chat', 'Chat (legacy)'
         OTHER = 'other', 'Other'
 
@@ -55,10 +51,6 @@ class Booking(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     session_type = models.CharField(max_length=20, choices=SessionType.choices, default=SessionType.VIDEO)
 
-    # New fields (added 2026-04-25):
-    # - video_platform: only meaningful when session_type='video'.
-    # - location_suggestion: only meaningful when session_type='in_person'. Tutor
-    #   makes the final call on actual location.
     video_platform = models.CharField(
         max_length=20, blank=True, choices=VideoPlatform.choices,
         help_text="Which video platform this session will use. "
@@ -75,7 +67,6 @@ class Booking(models.Model):
     session_link = models.URLField(blank=True)
     price = models.DecimalField(max_digits=6, decimal_places=2)
 
-    # Cancellation / refund tracking (Update 7)
     cancelled_at = models.DateTimeField(null=True, blank=True)
     cancelled_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL,

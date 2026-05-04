@@ -9,13 +9,6 @@ MIN_BANNED_SUBSTRING = 3
 
 
 class StudySpacePasswordValidator:
-    """
-    Single-stop validator for StudySpace password rules.
-
-    Options (all optional, have sensible defaults):
-      min_length   — integer, default 8
-      require_upper, require_lower, require_digit, require_symbol — bool, default True
-    """
 
     def __init__(
         self,
@@ -77,14 +70,6 @@ class StudySpacePasswordValidator:
 
     @staticmethod
     def _collect_banned_tokens(user):
-        """
-        Build a list of lower-case tokens that must not appear in the password.
-
-        Accepts either:
-          - a real User instance, or
-          - any object with .email / .first_name / .last_name / .display_name
-          - None (returns empty list)
-        """
         if user is None:
             return []
 

@@ -12,8 +12,8 @@ import { CalendarMonth, Forum, SmartToy, AccessTime, Search, Edit, Chat } from '
  *  - Forum Posts and AI Chats stats were hardcoded as '—'. Now fetched from
  *    /auth/dashboard-stats/student/ and refreshed on every navigation back
  *    to this page (via location.key) plus on window focus.
- *  - Upcoming Sessions now counts only confirmed + future, matching the
- *    backend stats view.
+ *  - Upcoming Sessions now uses the same active booking statuses as the
+ *    Bookings page, matching the backend stats view.
  */
 export default function StudentDashboard() {
   const { user } = useAuth();
@@ -48,7 +48,23 @@ export default function StudentDashboard() {
     return () => window.removeEventListener('focus', onFocus);
   }, [fetchAll]);
 
-  const upcoming = bookings.filter(b => b.status === 'confirmed');
+  const activeBookingStatuses = ['confirmed', 'pending', 'pending_payment', 'change_requested'];
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = bookings
+    .filter(b => activeBookingStatuses.includes(b.status) && (!b.slot_date || b.slot_date >= today))
+    .sort((a, b) => `${a.slot_date || ''} ${a.slot_start || ''}`.localeCompare(`${b.slot_date || ''} ${b.slot_start || ''}`));
+
+  const statusColor = (status) => {
+    if (status === 'confirmed') return 'success';
+    if (status === 'pending' || status === 'pending_payment' || status === 'change_requested') return 'warning';
+    return 'default';
+  };
+
+  const statusLabel = (status) => {
+    if (status === 'pending_payment') return 'Payment pending';
+    if (status === 'change_requested') return 'Change requested';
+    return status;
+  };
 
   const statCards = [
     {
@@ -152,8 +168,15 @@ export default function StudentDashboard() {
                     {b.subject} — {b.slot_date} at {b.slot_start}
                   </Typography>
                 </Box>
-                <Chip label={b.status} color="success" size="small" />
-                <Button variant="contained" size="small">Join Session</Button>
+                <Chip
+                  label={statusLabel(b.status)}
+                  color={statusColor(b.status)}
+                  size="small"
+                  sx={{ textTransform: 'capitalize' }}
+                />
+                <Button variant="contained" size="small" onClick={() => navigate('/bookings')}>
+                  View Booking
+                </Button>
               </CardContent>
             </Card>
           ))}

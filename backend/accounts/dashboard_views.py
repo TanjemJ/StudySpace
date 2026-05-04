@@ -34,8 +34,17 @@ class StudentDashboardStatsView(views.APIView):
 
         today = date.today()
 
+        active_student_statuses = [
+            Booking.Status.PENDING_PAYMENT,
+            Booking.Status.PENDING,
+            Booking.Status.CONFIRMED,
+            Booking.Status.CHANGE_REQUESTED,
+        ]
+
         upcoming = Booking.objects.filter(
-            student=user, status='confirmed', slot__date__gte=today,
+            student=user,
+            status__in=active_student_statuses,
+            slot__date__gte=today,
         ).count()
 
         # "Forum activity" counts both posts and replies by this student
@@ -122,14 +131,11 @@ class AdminDashboardStatsView(views.APIView):
             verification_status__in=['pending', 'under_review', 'info_requested'],
         ).count()
 
-        # Use getattr to handle codebases where ForumPost doesn't yet have
-        # the is_deleted field (pre-Update-6 migration not applied).
         fp_qs = ForumPost.objects.filter(is_flagged=True)
         if 'is_deleted' in [f.name for f in ForumPost._meta.get_fields()]:
             fp_qs = fp_qs.filter(is_deleted=False)
         flagged_posts = fp_qs.count()
 
-        # Reports is optional — not all installs have it wired yet.
         active_reports = 0
         try:
             from forum.models import Report
@@ -157,3 +163,4 @@ class AdminDashboardStatsView(views.APIView):
             'total_tutors': total_tutors,
             'revenue_this_month': float(revenue_month),
         })
+
