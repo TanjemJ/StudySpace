@@ -1,6 +1,6 @@
 # 🎓 StudySpace
 
-**StudySpace** is a full-stack university learning platform built for UK students. It brings together verified tutoring, university-only forums, guided AI study support, role-based dashboards, messaging, booking management, accessibility settings, and admin moderation in one connected experience.
+**StudySpace** is a full-stack university learning platform built for UK students. It brings together verified tutoring, university-only forums, guided AI study support, role-based dashboards, messaging, Stripe-backed booking payments, accessibility settings, and admin moderation in one connected experience.
 
 [![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-22c55e?style=for-the-badge)](#-tech-stack)
 [![Backend](https://img.shields.io/badge/Backend-Django%20REST-0f766e?style=for-the-badge)](#-tech-stack)
@@ -28,7 +28,7 @@
 - Register with email verification.
 - Verify a university email to unlock campus-specific forum spaces.
 - Search tutors by subject, price, rating, availability, and location.
-- Book tutoring sessions and manage bookings from a student dashboard.
+- Book tutoring sessions through Stripe test checkout and manage bookings from a student dashboard.
 - Use the AI Academic Assistant for guided, Socratic-style study support.
 - Send messages and participate in moderated forums.
 - Save accessibility preferences across the platform.
@@ -38,6 +38,7 @@
 - Complete a multi-step tutor onboarding flow.
 - Upload verification documents for admin review.
 - Set subjects, rates, availability, and teaching details.
+- Connect Stripe and become payment-ready before appearing as bookable.
 - Accept, manage, or complete tutoring bookings.
 - View tutor dashboard stats and upcoming sessions.
 
@@ -74,6 +75,7 @@
 | Auth | JWT with SimpleJWT, Google OAuth, Microsoft Entra OAuth |
 | Database | PostgreSQL locally and Cloud SQL in production |
 | AI | Google Gemini API |
+| Payments | Stripe Checkout and Stripe Connect |
 | Media | Google Cloud Storage |
 | Hosting | Firebase Hosting, Google Cloud Run |
 | CI/CD | GitHub Actions for frontend, Google Cloud Build for backend |
@@ -98,6 +100,7 @@ StudySpace/
 │   │   ├── views.py
 │   │   └── management/commands/
 │   ├── tutoring/
+│   │   └── stripe_services.py
 │   ├── forum/
 │   ├── messaging/
 │   └── ai_assistant/
@@ -299,6 +302,9 @@ Important production values include:
 | `DB_PASSWORD` | Cloud SQL database password |
 | `STUDYSPACE_ADMIN_PASSWORD` | Initial/admin management password |
 | `GEMINI_API_KEY` | Google Gemini API access |
+| `STRIPE_SECRET_KEY` | Stripe API key for checkout, Connect onboarding, and refunds |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `STRIPE_PLATFORM_FEE_PERCENT` | Platform fee percentage applied to Stripe payments |
 | `VITE_GOOGLE_CLIENT_ID` | Google browser OAuth client |
 | `VITE_MICROSOFT_CLIENT_ID` | Microsoft Entra SPA client |
 | `FIREBASE_TOKEN` | Firebase deploy token for GitHub Actions |
@@ -310,7 +316,7 @@ Important production values include:
 | Area | Base Path | Purpose |
 | --- | --- | --- |
 | Auth | `/api/auth/` | Registration, login, profiles, OAuth, dashboards |
-| Tutoring | `/api/tutoring/` | Tutor search, availability, bookings, reviews |
+| Tutoring | `/api/tutoring/` | Tutor search, availability, bookings, Stripe payments, reviews |
 | Forum | `/api/forum/` | Categories, posts, replies, votes, reports |
 | Messaging | `/api/messaging/` | Conversations and chat messages |
 | AI Assistant | `/api/ai/` | AI conversations and study support |
@@ -366,6 +372,7 @@ frontend/src/theme.js
 - [x] Firebase rewrites configured for API, admin, and static files.
 - [x] Cloud SQL connected.
 - [x] Google Cloud Storage media bucket configured.
+- [x] Stripe test payments and tutor payment-readiness flow configured.
 - [x] Secret Manager values configured.
 - [x] Django migrations completed.
 - [x] Admin user created.
