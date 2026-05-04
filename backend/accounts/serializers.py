@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from decimal import Decimal
 
 from rest_framework import serializers
@@ -43,12 +42,12 @@ class RegisterStep1Serializer(serializers.Serializer):
         if data['password'] != data['confirm_password']:
             raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
 
-        synthetic_user = SimpleNamespace(
+        synthetic_user = User(
             email=data['email'],
+            username=data['email'],
             first_name='',
             last_name='',
             display_name='',
-            username=data['email'],
         )
         try:
             validate_password(data['password'], user=synthetic_user)

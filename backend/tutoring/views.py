@@ -1156,10 +1156,6 @@ def _apply_change_request(cr):
 # --------------------------------------------------------------------------
 
 class BookingDocumentListCreateView(views.APIView):
-    """
-    GET  /bookings/<id>/documents/  — list documents on a booking
-    POST /bookings/<id>/documents/  — upload a document (multipart)
-    """
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 

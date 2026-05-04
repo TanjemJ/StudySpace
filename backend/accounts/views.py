@@ -789,7 +789,7 @@ class TutorSearchView(generics.ListAPIView):
             verification_status=TutorProfile.VerificationStatus.APPROVED,
             stripe_charges_enabled=True,
             stripe_payouts_enabled=True,
-        ).select_related('user')
+        ).select_related('user').order_by('user__display_name')
 
         subject = self.request.query_params.get('subject')
         if subject:
