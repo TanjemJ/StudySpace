@@ -11,7 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics, permissions, status, views
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
-from django.db.models import Avg, Q
+from django.db.models import Avg, Count, Q
 
 from .models import (
     AvailabilitySlot, Booking, PaymentRecord, Review,
@@ -20,7 +20,7 @@ from .models import (
 from accounts.models import Notification, TutorProfile
 from .serializers import (
     AvailabilitySlotSerializer, BookingSerializer, BookingCreateSerializer,
-    ReviewSerializer, ReviewCreateSerializer,
+    ReviewSerializer, ReviewCreateSerializer, ReviewUpdateSerializer,
     BookingChangeRequestSerializer, BookingDocumentSerializer,
 )
 from .stripe_services import (
@@ -73,6 +73,16 @@ def _is_tutor_of(user, booking):
 
 def _is_student_of(user, booking):
     return booking.student == user
+
+
+def _refresh_tutor_review_stats(tutor):
+    stats = Review.objects.filter(tutor=tutor).aggregate(
+        avg=Avg('rating'),
+        count=Count('id'),
+    )
+    tutor.average_rating = round(stats['avg'], 1) if stats['avg'] else 0
+    tutor.total_reviews = stats['count'] or 0
+    tutor.save(update_fields=['average_rating', 'total_reviews'])
 
 
 def _parse_optional_time(value, field_name):
@@ -1275,6 +1285,8 @@ class ReviewCreateView(views.APIView):
 
         if Review.objects.filter(booking=booking).exists():
             return Response({'error': 'Already reviewed.'}, status=400)
+        if Review.objects.filter(student=request.user, tutor=booking.tutor).exists():
+            return Response({'error': 'You have already reviewed this tutor.'}, status=400)
 
         review = Review.objects.create(
             booking=booking, student=request.user, tutor=booking.tutor,
@@ -1282,10 +1294,7 @@ class ReviewCreateView(views.APIView):
         )
 
         tutor = booking.tutor
-        avg = Review.objects.filter(tutor=tutor).aggregate(avg=Avg('rating'))['avg']
-        tutor.average_rating = round(avg, 1) if avg else 0
-        tutor.total_reviews = Review.objects.filter(tutor=tutor).count()
-        tutor.save()
+        _refresh_tutor_review_stats(tutor)
 
         Notification.objects.create(
             user=tutor.user,
@@ -1296,6 +1305,48 @@ class ReviewCreateView(views.APIView):
         )
 
         return Response(ReviewSerializer(review).data, status=201)
+
+
+class ReviewDetailView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_review(self, request, review_id):
+        try:
+            review = Review.objects.select_related('student', 'tutor__user', 'booking').get(
+                id=review_id,
+            )
+        except Review.DoesNotExist:
+            return None, Response({'error': 'Review not found.'}, status=404)
+
+        if review.student_id != request.user.id:
+            return None, Response({'error': 'You can only manage your own review.'}, status=403)
+
+        return review, None
+
+    def patch(self, request, review_id):
+        review, error_response = self.get_review(request, review_id)
+        if error_response:
+            return error_response
+
+        serializer = ReviewUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review.rating = serializer.validated_data['rating']
+        review.comment = serializer.validated_data['comment']
+        review.save(update_fields=['rating', 'comment'])
+        _refresh_tutor_review_stats(review.tutor)
+
+        return Response(ReviewSerializer(review).data)
+
+    def delete(self, request, review_id):
+        review, error_response = self.get_review(request, review_id)
+        if error_response:
+            return error_response
+
+        tutor = review.tutor
+        review.delete()
+        _refresh_tutor_review_stats(tutor)
+
+        return Response({'message': 'Review deleted.'})
 
 
 class TutorReviewsView(generics.ListAPIView):

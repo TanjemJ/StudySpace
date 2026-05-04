@@ -10,7 +10,7 @@ import {
 import {
   RateReview, CheckCircle, Cancel as CancelIcon, HourglassEmpty, SwapHoriz,
   ExpandMore, ExpandLess, VideoCall, Chat as ChatIcon, Person as PersonIcon,
-  Payments,
+  Payments, Edit, Delete as DeleteIcon,
 } from '@mui/icons-material';
 
 import ChangeRequestCard from '../components/booking/ChangeRequestCard';
@@ -45,6 +45,7 @@ export default function Bookings() {
   const [checkoutLoadingId, setCheckoutLoadingId] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewTarget, setReviewTarget] = useState(null);
+  const [reviewMode, setReviewMode] = useState('create');
 
   const [declineTarget, setDeclineTarget] = useState(null);
   const [declineReason, setDeclineReason] = useState('');
@@ -97,9 +98,11 @@ export default function Bookings() {
 
   // --- review ---
   const openReview = (booking) => {
+    const existingReview = booking.review || null;
     setReviewTarget(booking);
-    setRating(5);
-    setComment('');
+    setReviewMode(existingReview ? 'edit' : 'create');
+    setRating(existingReview?.rating || 5);
+    setComment(existingReview?.comment || '');
     setError('');
     setReviewOpen(true);
   };
@@ -109,14 +112,36 @@ export default function Bookings() {
     setSubmitting(true);
     setError('');
     try {
-      await api.post('/tutoring/reviews/create/', {
-        booking_id: reviewTarget.id, rating, comment: comment.trim(),
-      });
+      if (reviewMode === 'edit' && reviewTarget?.review?.id) {
+        await api.patch(`/tutoring/reviews/manage/${reviewTarget.review.id}/`, {
+          rating, comment: comment.trim(),
+        });
+      } else {
+        await api.post('/tutoring/reviews/create/', {
+          booking_id: reviewTarget.id, rating, comment: comment.trim(),
+        });
+      }
       setReviewOpen(false);
-      setSnackbar('Review submitted.');
+      setSnackbar(reviewMode === 'edit' ? 'Review updated.' : 'Review submitted.');
       fetchBookings();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to submit review.');
+      setError(err.response?.data?.error || 'Failed to save review.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const deleteReview = async (booking) => {
+    const reviewId = booking.review?.id;
+    if (!reviewId) return;
+    if (!window.confirm('Delete this review?')) return;
+    setSubmitting(true);
+    try {
+      await api.delete(`/tutoring/reviews/manage/${reviewId}/`);
+      setSnackbar('Review deleted.');
+      fetchBookings();
+    } catch (err) {
+      setSnackbar(err.response?.data?.error || 'Failed to delete review.');
     } finally {
       setSubmitting(false);
     }
@@ -251,7 +276,11 @@ export default function Bookings() {
         {filtered.map(b => {
           const otherName = isTutor ? b.student_name : b.tutor_name;
           const otherAvatar = isTutor ? b.student_avatar : b.tutor_avatar;
-          const canReview = !isTutor && tab === 1 && b.status === 'completed' && !b.has_review;
+          const existingReview = !isTutor && tab === 1 && b.status === 'completed'
+            ? b.review
+            : null;
+          const canReview = !isTutor && tab === 1 && b.status === 'completed' &&
+            !existingReview && !b.has_review;
           const isActive = isTutor
             ? ['confirmed', 'pending', 'change_requested'].includes(b.status)
             : ['confirmed', 'pending', 'pending_payment', 'change_requested'].includes(b.status);
@@ -308,11 +337,39 @@ export default function Bookings() {
                       Leave Review
                     </Button>
                   )}
-                  {b.has_review && tab === 1 && (
+                  {existingReview && (
+                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                      <Chip icon={<CheckCircle />} label="Reviewed"
+                            size="small" variant="outlined" color="success" />
+                      <Button size="small" variant="outlined" startIcon={<Edit />}
+                              onClick={() => openReview(b)}>
+                        Edit
+                      </Button>
+                      <Button size="small" variant="outlined" color="error"
+                              startIcon={<DeleteIcon />}
+                              onClick={() => deleteReview(b)}
+                              disabled={submitting}>
+                        Delete
+                      </Button>
+                    </Stack>
+                  )}
+                  {!existingReview && b.has_review && tab === 1 && (
                     <Chip icon={<CheckCircle />} label="Reviewed"
                           size="small" variant="outlined" color="success" />
                   )}
                 </Box>
+
+                {existingReview && (
+                  <Alert severity="success" sx={{ mt: 1.5 }}>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                      <Rating value={existingReview.rating} size="small" readOnly />
+                      <Typography variant="caption" color="text.secondary">
+                        Your review
+                      </Typography>
+                    </Stack>
+                    <Typography variant="body2">"{existingReview.comment}"</Typography>
+                  </Alert>
+                )}
 
                 {/* Pending change card (shared by both sides — component handles role logic) */}
                 {pendingChange && (
@@ -486,7 +543,9 @@ export default function Bookings() {
       {/* Review dialog */}
       <Dialog open={reviewOpen} onClose={() => !submitting && setReviewOpen(false)}
               maxWidth="sm" fullWidth>
-        <DialogTitle>Review your session with {reviewTarget?.tutor_name}</DialogTitle>
+        <DialogTitle>
+          {reviewMode === 'edit' ? 'Edit your review' : 'Review your session'} with {reviewTarget?.tutor_name}
+        </DialogTitle>
         <DialogContent dividers>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Box sx={{ mb: 2 }}>
@@ -509,7 +568,7 @@ export default function Bookings() {
           <Button onClick={() => setReviewOpen(false)} disabled={submitting}>Cancel</Button>
           <Button variant="contained" onClick={submitReview}
                   disabled={submitting || !comment.trim()}>
-            {submitting ? 'Submitting...' : 'Submit Review'}
+            {submitting ? 'Saving...' : reviewMode === 'edit' ? 'Update Review' : 'Submit Review'}
           </Button>
         </DialogActions>
       </Dialog>

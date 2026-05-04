@@ -46,5 +46,7 @@ urlpatterns = [
 
     # Reviews
     path('reviews/create/', views.ReviewCreateView.as_view(), name='review-create'),
+    path('reviews/manage/<uuid:review_id>/', views.ReviewDetailView.as_view(),
+         name='review-detail'),
     path('reviews/<uuid:tutor_id>/', views.TutorReviewsView.as_view(), name='tutor-reviews'),
 ]

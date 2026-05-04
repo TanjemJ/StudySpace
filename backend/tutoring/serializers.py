@@ -91,6 +91,7 @@ class BookingSerializer(serializers.ModelSerializer):
     documents = BookingDocumentSerializer(many=True, read_only=True)
     pending_change = serializers.SerializerMethodField()
     has_review = serializers.SerializerMethodField()
+    review = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
     requires_payment = serializers.SerializerMethodField()
     checkout_url = serializers.SerializerMethodField()
@@ -118,7 +119,27 @@ class BookingSerializer(serializers.ModelSerializer):
         return BookingChangeRequestSerializer(cr, context=self.context).data
 
     def get_has_review(self, obj):
-        return hasattr(obj, 'review')
+        return self._get_visible_review(obj) is not None
+
+    def get_review(self, obj):
+        review = self._get_visible_review(obj)
+        if not review:
+            return None
+        return ReviewSerializer(review, context=self.context).data
+
+    def _get_visible_review(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated and request.user == obj.student:
+            return (
+                Review.objects
+                .filter(student=obj.student, tutor=obj.tutor)
+                .order_by('-created_at')
+                .first()
+            )
+        try:
+            return obj.review
+        except Review.DoesNotExist:
+            return None
 
     def get_payment_status(self, obj):
         try:
@@ -200,6 +221,23 @@ class ReviewCreateSerializer(serializers.Serializer):
     booking_id = serializers.UUIDField()
     rating = serializers.IntegerField(min_value=1, max_value=5)
     comment = serializers.CharField(max_length=1000)
+
+    def validate_comment(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Please write a short comment.')
+        return value
+
+
+class ReviewUpdateSerializer(serializers.Serializer):
+    rating = serializers.IntegerField(min_value=1, max_value=5)
+    comment = serializers.CharField(max_length=1000)
+
+    def validate_comment(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Please write a short comment.')
+        return value
 
 
 class ReviewSerializer(serializers.ModelSerializer):
