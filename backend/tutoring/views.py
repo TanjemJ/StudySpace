@@ -75,6 +75,17 @@ def _is_student_of(user, booking):
     return booking.student == user
 
 
+def _parse_optional_time(value, field_name):
+    if not value:
+        return None
+    for fmt in ('%H:%M:%S', '%H:%M'):
+        try:
+            return datetime.strptime(value, fmt).time()
+        except ValueError:
+            continue
+    raise ValueError(f'{field_name} must be HH:MM or HH:MM:SS.')
+
+
 def _remove_unpaid_booking(booking):
     """Roll back an unpaid booking if checkout cannot be created."""
     with transaction.atomic():
@@ -851,15 +862,17 @@ class BookingChangeRequestCreateView(views.APIView):
     """
     Create a change request on a booking.
 
-    Either party can request changes to date, time, or session_type on
-    bookings that are pending or confirmed. At least one proposed field
-    must differ from the current booking.
+    Either party can request changes to date, time, session type, video
+    platform or location on bookings that are pending or confirmed. At
+    least one proposed field must differ from the current booking.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, booking_id):
         try:
-            booking = Booking.objects.select_related('slot').get(id=booking_id)
+            booking = Booking.objects.select_related(
+                'slot', 'student', 'tutor__user',
+            ).get(id=booking_id)
         except Booking.DoesNotExist:
             return Response({'error': 'Booking not found.'}, status=404)
 
@@ -886,34 +899,73 @@ class BookingChangeRequestCreateView(views.APIView):
         proposed_start = request.data.get('proposed_start_time') or None
         proposed_end = request.data.get('proposed_end_time') or None
         proposed_type = request.data.get('proposed_session_type') or ''
+        proposed_platform = request.data.get('proposed_video_platform') or ''
+        proposed_location = (request.data.get('proposed_location_suggestion') or '').strip()
         message = (request.data.get('message') or '').strip()
-
-        if not (proposed_date or proposed_start or proposed_session_type_set(proposed_type, booking)):
-            return Response({
-                'error': 'Please propose at least one change (date, time, or session type).',
-            }, status=400)
 
         if proposed_type and proposed_type not in dict(Booking.SessionType.choices):
             return Response({'error': 'Invalid session type.'}, status=400)
 
-        # Parse date/time for comparison
+        if proposed_platform and proposed_platform not in dict(Booking.VideoPlatform.choices):
+            return Response({'error': 'Invalid video platform.'}, status=400)
+
+        target_session_type = proposed_type or booking.session_type
+        if proposed_platform and target_session_type != Booking.SessionType.VIDEO:
+            return Response({
+                'error': 'A video platform can only be proposed for video sessions.',
+            }, status=400)
+        if proposed_location and target_session_type != Booking.SessionType.IN_PERSON:
+            return Response({
+                'error': 'A location can only be proposed for in-person sessions.',
+            }, status=400)
+
         try:
             pd = datetime.strptime(proposed_date, '%Y-%m-%d').date() if proposed_date else None
         except ValueError:
             return Response({'error': 'proposed_date must be YYYY-MM-DD.'}, status=400)
 
+        try:
+            ps = _parse_optional_time(proposed_start, 'proposed_start_time')
+            pe = _parse_optional_time(proposed_end, 'proposed_end_time')
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=400)
+
         if pd and pd < timezone.localdate():
             return Response({'error': 'Proposed date cannot be in the past.'}, status=400)
+
+        date_changed = pd is not None and pd != booking.slot.date
+        start_changed = ps is not None and ps != booking.slot.start_time
+        end_changed = pe is not None and pe != booking.slot.end_time
+        type_changed = proposed_session_type_set(proposed_type, booking)
+        platform_changed = (
+            target_session_type == Booking.SessionType.VIDEO and
+            bool(proposed_platform) and
+            proposed_platform != (booking.video_platform or '')
+        )
+        location_changed = (
+            target_session_type == Booking.SessionType.IN_PERSON and
+            bool(proposed_location) and
+            proposed_location != (booking.location_suggestion or '')
+        )
+
+        if not (date_changed or start_changed or end_changed or type_changed or
+                platform_changed or location_changed):
+            return Response({
+                'error': ('Please propose at least one change: date, time, session type, '
+                          'video platform or location.'),
+            }, status=400)
 
         cr = BookingChangeRequest.objects.create(
             booking=booking,
             requested_by=(BookingChangeRequest.RequestedBy.TUTOR if is_tutor
                           else BookingChangeRequest.RequestedBy.STUDENT),
             requested_by_user=user,
-            proposed_date=pd,
-            proposed_start_time=proposed_start or None,
-            proposed_end_time=proposed_end or None,
-            proposed_session_type=proposed_type or '',
+            proposed_date=pd if date_changed else None,
+            proposed_start_time=ps if start_changed else None,
+            proposed_end_time=pe if end_changed else None,
+            proposed_session_type=proposed_type if type_changed else '',
+            proposed_video_platform=proposed_platform if platform_changed else '',
+            proposed_location_suggestion=proposed_location if location_changed else '',
             message=message,
         )
 
@@ -1008,11 +1060,14 @@ class BookingChangeRequestActionView(views.APIView):
             return Response(BookingChangeRequestSerializer(cr, context={'request': request}).data)
 
         if action == 'accept':
-            with transaction.atomic():
-                _apply_change_request(cr)
-                cr.status = BookingChangeRequest.Status.ACCEPTED
-                cr.resolved_at = timezone.now()
-                cr.save()
+            try:
+                with transaction.atomic():
+                    _apply_change_request(cr)
+                    cr.status = BookingChangeRequest.Status.ACCEPTED
+                    cr.resolved_at = timezone.now()
+                    cr.save()
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=400)
 
             Notification.objects.create(
                 user=cr.requested_by_user,
@@ -1058,7 +1113,9 @@ def _apply_change_request(cr):
             defaults={'end_time': new_end},
         )
         # If new slot existed and is already booked by someone else — problem
-        if new_slot.is_booked and new_slot.booking_id != booking.id:
+        existing_booking = getattr(new_slot, 'booking', None)
+        existing_booking_id = getattr(existing_booking, 'id', None)
+        if new_slot.is_booked and existing_booking_id != booking.id:
             raise ValueError('Target slot is already booked.')
 
         new_slot.is_booked = True

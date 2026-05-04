@@ -23,8 +23,6 @@ urlpatterns = [
     path('bookings/<uuid:pk>/', views.BookingDetailView.as_view(), name='booking-detail'),
     path('bookings/<uuid:pk>/checkout/', views.BookingCheckoutResumeView.as_view(),
          name='booking-checkout-resume'),
-    path('bookings/<uuid:pk>/<str:action>/', views.BookingActionView.as_view(),
-         name='booking-action'),
 
     # Change requests (NEW in Update 7)
     path('bookings/<uuid:booking_id>/change-requests/',
@@ -41,6 +39,10 @@ urlpatterns = [
     path('bookings/documents/<uuid:doc_id>/',
          views.BookingDocumentDeleteView.as_view(),
          name='booking-document-delete'),
+
+    # Keep the generic action route after specific booking subroutes.
+    path('bookings/<uuid:pk>/<str:action>/', views.BookingActionView.as_view(),
+         name='booking-action'),
 
     # Reviews
     path('reviews/create/', views.ReviewCreateView.as_view(), name='review-create'),
