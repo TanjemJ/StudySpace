@@ -193,7 +193,7 @@ export default function AIChat() {
             </Button>
             <Button variant="outlined" size="large" onClick={() => navigate('/signup')}
               sx={{ borderColor: 'white', color: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>
-              Sign Up — Free
+              Sign Up
             </Button>
           </Stack>
         </Backdrop>
