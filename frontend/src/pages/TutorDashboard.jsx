@@ -17,6 +17,7 @@ import ChangeRequestDialog from '../components/booking/ChangeRequestDialog';
 import ChangeRequestCard from '../components/booking/ChangeRequestCard';
 import BookingDocumentsList from '../components/booking/BookingDocumentsList';
 import CancelBookingDialog from '../components/booking/CancelBookingDialog';
+import VerificationStatusCard from '../components/tutor/VerificationStatusCard';
 
 
 export default function TutorDashboard() {
@@ -242,15 +243,10 @@ export default function TutorDashboard() {
         </Alert>
       )}
       {user?.tutor_profile?.verification_status === 'pending' && (
-        <Alert severity="warning" sx={{ mb: 3 }}>
-          Your profile is <strong>pending review</strong> by our admin team.
-        </Alert>
+        <VerificationStatusCard onChange={fetchData} />
       )}
       {user?.tutor_profile?.verification_status === 'info_requested' && (
-        <Alert severity="info" sx={{ mb: 3 }}>
-          <strong>More information needed:</strong>{' '}
-          {user.tutor_profile.info_request_message || 'Check your notifications.'}
-        </Alert>
+        <VerificationStatusCard onChange={fetchData} />
       )}
 
       <Grid container spacing={3} sx={{ mb: 4 }}>

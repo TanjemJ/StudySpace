@@ -8,7 +8,6 @@ from .models import PendingRegistration, TutorProfile, User
 
 
 class AuthenticationAndValidationApiTests(TestCase):
-    """Focused API tests for authentication, protected routes and registration validation."""
 
     def setUp(self):
         self.client = APIClient()
@@ -89,7 +88,6 @@ class AuthenticationAndValidationApiTests(TestCase):
 
 
 class TutorSearchApiTests(TestCase):
-    """Focused API test for tutor search trust and payment-readiness filtering."""
 
     def setUp(self):
         self.client = APIClient()
@@ -130,3 +128,4 @@ class TutorSearchApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         returned_ids = {item['user']['id'] for item in response.data['results']}
         self.assertEqual(returned_ids, {str(visible.user_id)})
+

@@ -6,7 +6,6 @@ from .models import ForumCategory, ForumPost
 
 
 class UniversityForumApiTests(TestCase):
-    """Focused API tests for university-only forum access rules."""
 
     def setUp(self):
         self.client = APIClient()
