@@ -14,6 +14,7 @@ from .models import AvailabilitySlot, Booking, PaymentRecord
 
 
 class BookingAndStripeApiTests(TestCase):
+    """Focused API tests for booking creation, slot locking and Stripe webhook handling."""
 
     def setUp(self):
         self.client = APIClient()
